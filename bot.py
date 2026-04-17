@@ -95,7 +95,7 @@ def progress_text(block, index):
 @dp.message(CommandStart())
 async def start(message: Message):
     if message.from_user.id not in ALLOWED_USERS:
-        await message.answer("Доступ ограничен")
+        await message.answer("Доступ к боту ограничен, обратитесь к администартору @juliavoice_coach")
         return
 
     name = message.from_user.first_name
