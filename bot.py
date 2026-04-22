@@ -100,7 +100,7 @@ def kb(last: bool):
 
 
 def get_course(cid):
-    return data["courses"].get(cid, [])
+    return data["courses"][cid]
 
 
 # -------------------- START --------------------
@@ -115,7 +115,7 @@ async def start(m: Message):
     await m.answer("Выбери блок:", reply_markup=menu)
 
 
-# -------------------- COURSE START --------------------
+# -------------------- START COURSE --------------------
 
 async def start_course(m: Message, cid: str):
     state[str(m.from_user.id)] = {"c": cid, "i": 0}
@@ -193,10 +193,10 @@ async def admin(m: Message):
     await m.answer("Админ-панель:", reply_markup=admin_kb)
 
 
-# -------------------- ADMIN USERS --------------------
+# -------------------- USERS --------------------
 
 @dp.message(F.text == "➕ Добавить пользователя")
-async def add_user_mode(m: Message):
+async def add_user(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
 
@@ -205,7 +205,7 @@ async def add_user_mode(m: Message):
 
 
 @dp.message(F.text == "➖ Удалить пользователя")
-async def remove_user_mode(m: Message):
+async def remove_user(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
 
@@ -225,7 +225,7 @@ async def exit_admin(m: Message):
 # -------------------- ADD VIDEO FLOW --------------------
 
 @dp.message(F.text == "🎥 Добавить видео")
-async def add_video_start(m: Message):
+async def add_video(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
 
@@ -241,15 +241,13 @@ async def choose_course(m: Message):
     if admin_state.get(m.from_user.id) != "choose_course":
         return
 
-    pending_video[m.from_user.id] = {
-        "course": m.text
-    }
-
+    pending_video[m.from_user.id] = {"course": m.text}
     admin_state[m.from_user.id] = "wait_video"
-    await m.answer("Отправь или перешли видео")
+
+    await m.answer("Отправь или перешли видео (forward тоже работает)")
 
 
-# -------------------- RECEIVE VIDEO (FORWARD SUPPORT) --------------------
+# -------------------- RECEIVE VIDEO --------------------
 
 @dp.message(F.video | F.document)
 async def receive_video(m: Message):
@@ -263,12 +261,11 @@ async def receive_video(m: Message):
 
     if m.video:
         file_id = m.video.file_id
-
     elif m.document and m.document.mime_type.startswith("video"):
         file_id = m.document.file_id
 
     if not file_id:
-        return await m.answer("Отправь именно видео")
+        return await m.answer("Нужно видео")
 
     pending_video[m.from_user.id]["file_id"] = file_id
     admin_state[m.from_user.id] = "wait_name"
@@ -291,8 +288,6 @@ async def receive_name(m: Message):
 
     cid = pv["course"]
 
-    data["courses"].setdefault(cid, [])
-
     data["courses"][cid].append({
         "name": name,
         "file_id": pv["file_id"]
@@ -306,10 +301,10 @@ async def receive_name(m: Message):
     await m.answer("Видео добавлено ✅")
 
 
-# -------------------- USER MANAGEMENT --------------------
+# -------------------- USER ADMIN --------------------
 
 @dp.message()
-async def user_admin_actions(m: Message):
+async def user_admin(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
 
@@ -321,7 +316,7 @@ async def user_admin_actions(m: Message):
     try:
         uid = int(m.text)
     except:
-        return await m.answer("Неверный ID")
+        return await m.answer("Ошибка ID")
 
     if mode == "add_user":
         if uid not in data["users"]:
