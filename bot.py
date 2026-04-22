@@ -3,6 +3,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import tempfile
 import time
 from typing import Any, Dict, List, TypedDict
@@ -42,6 +43,7 @@ dp = Dispatcher()
 
 DEFAULT_ADMIN_ID = 470343161
 MAX_VIDEO_TITLE_LENGTH = 120
+MAX_BLOCK_TITLE_LENGTH = 80
 CALLBACK_COOLDOWN_SECONDS = 0.8
 
 
@@ -67,13 +69,16 @@ class AdminUserFSM(StatesGroup):
     wait_user_id = State()
 
 
-BLOCKS = {
+class AdminBlockFSM(StatesGroup):
+    wait_block_title = State()
+
+
+DEFAULT_BLOCKS = {
     "warmup": "1️⃣ Разогрев",
     "voice": "2️⃣ Рабочие звуки/звонкие качества",
     "belt": "3️⃣ Народный/Бэлтинг",
     "practice": "4️⃣ Вокальные упражнения",
 }
-BLOCK_ALIASES = {v: k for k, v in BLOCKS.items()}
 
 BLOCK_FINISH_MESSAGES = {
     "warmup": "{name}, переходи к следующему блоку 2️⃣",
@@ -85,6 +90,7 @@ BLOCK_FINISH_MESSAGES = {
         "<b>С заботой о Вас, Юлия Золотых ❤️</b>"
     ),
 }
+DEFAULT_FINISH_MESSAGE = "{name}, блок завершён ✅"
 
 user_callback_ts: Dict[int, float] = {}
 
@@ -94,6 +100,7 @@ def default_data() -> Dict[str, Any]:
         "admins": [DEFAULT_ADMIN_ID],
         "allowed_users": [DEFAULT_ADMIN_ID],
         "profiles": {},
+        "blocks": DEFAULT_BLOCKS.copy(),
         "videos": {
             "warmup": [
                 {"title": "Трель", "video": "BAACAgIAAxkBAAICvmmHnO8V9I3oytM_0IiWhjMTdJp-AAJ6qAACd5hBSKlSxJmdQJHBOgQ"},
@@ -129,8 +136,34 @@ def default_data() -> Dict[str, Any]:
     }
 
 
+def get_blocks() -> Dict[str, str]:
+    return DATA.get("blocks", {})
+
+
+def block_aliases() -> Dict[str, str]:
+    return {title: key for key, title in get_blocks().items()}
+
+
 def generate_video_id() -> str:
     return uuid4().hex[:16]
+
+
+def slugify(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE)
+    text = re.sub(r"[-\s]+", "_", text, flags=re.UNICODE)
+    return text.strip("_") or "block"
+
+
+def generate_block_key(title: str) -> str:
+    base = slugify(title)
+    blocks = get_blocks()
+    key = base
+    counter = 2
+    while key in blocks:
+        key = f"{base}_{counter}"
+        counter += 1
+    return key
 
 
 def atomic_write_json(path: str, data: Dict[str, Any]) -> None:
@@ -180,13 +213,30 @@ def normalize_profiles(raw_profiles: Any) -> Dict[str, ProfileItem]:
     return profiles
 
 
-def normalize_videos(raw_videos: Any) -> Dict[str, List[VideoItem]]:
+def normalize_blocks(raw_blocks: Any) -> Dict[str, str]:
+    blocks: Dict[str, str] = {}
+
+    if isinstance(raw_blocks, dict):
+        for key, title in raw_blocks.items():
+            clean_key = str(key).strip()
+            clean_title = str(title).strip()
+            if not clean_key or not clean_title:
+                continue
+            blocks[clean_key] = clean_title[:MAX_BLOCK_TITLE_LENGTH]
+
+    if not blocks:
+        blocks = DEFAULT_BLOCKS.copy()
+
+    return blocks
+
+
+def normalize_videos(raw_videos: Any, blocks: Dict[str, str]) -> Dict[str, List[VideoItem]]:
     videos: Dict[str, List[VideoItem]] = {}
 
     if not isinstance(raw_videos, dict):
         raw_videos = {}
 
-    for block in BLOCKS:
+    for block in blocks:
         items = raw_videos.get(block, [])
         if not isinstance(items, list):
             items = []
@@ -227,12 +277,14 @@ def ensure_data_shape(data: Dict[str, Any]) -> Dict[str, Any]:
 
     allowed_users = sorted(set(old_allowed + admins))
     profiles = normalize_profiles(data.get("profiles"))
-    videos = normalize_videos(data.get("videos"))
+    blocks = normalize_blocks(data.get("blocks"))
+    videos = normalize_videos(data.get("videos"), blocks)
 
     normalized = {
         "admins": admins,
         "allowed_users": allowed_users,
         "profiles": profiles,
+        "blocks": blocks,
         "videos": videos,
     }
     return normalized
@@ -311,7 +363,7 @@ def format_user_line(uid: int) -> str:
 
 def main_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=text)] for text in BLOCKS.values()],
+        keyboard=[[KeyboardButton(text=text)] for text in get_blocks().values()],
         resize_keyboard=True,
     )
 
@@ -326,6 +378,7 @@ def admin_main_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🎬 Добавить видео", callback_data="admin:add_video")],
+            [InlineKeyboardButton(text="🧩 Добавить блок", callback_data="admin:add_block")],
             [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users")],
             [InlineKeyboardButton(text="📂 Видео по блокам", callback_data="admin:list_blocks")],
         ]
@@ -343,7 +396,7 @@ def admin_users_kb() -> InlineKeyboardMarkup:
 
 
 def admin_blocks_kb(prefix: str) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text=title, callback_data=f"{prefix}:{block}")] for block, title in BLOCKS.items()]
+    rows = [[InlineKeyboardButton(text=title, callback_data=f"{prefix}:{block}")] for block, title in get_blocks().items()]
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -366,7 +419,7 @@ def admin_video_item_kb(block: str, item_id: str, index: int, total: int) -> Inl
 
 def users_text() -> str:
     users = sorted(get_allowed_users())
-    lines = ["<b>Список пользователей с доступом</b>"]
+    lines = ["<b>👥Список пользователей с доступом:</b>"]
     for uid in users:
         lines.append(format_user_line(uid))
     return "\n".join(lines)
@@ -374,7 +427,7 @@ def users_text() -> str:
 
 def user_remove_list_text() -> str:
     users = sorted(get_allowed_users())
-    lines = ["<b>Выберите пользователя для удаления</b>"]
+    lines = ["<b>Выберите пользователя для удаления👇🏼</b>"]
     for uid in users:
         lines.append(format_user_line(uid))
     return "\n".join(lines)
@@ -434,6 +487,11 @@ def update_callback_ts(user_id: int) -> bool:
     return True
 
 
+def is_last_block(block: str) -> bool:
+    keys = list(get_blocks().keys())
+    return bool(keys) and keys[-1] == block
+
+
 async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
     if not call.message:
         return
@@ -457,6 +515,7 @@ async def show_admin_panel(target: Message | CallbackQuery) -> None:
         "<b>Админ-панель</b>\n\n"
         "Здесь можно:\n"
         "• добавлять видео\n"
+        "• добавлять блоки\n"
         "• добавлять пользователей\n"
         "• удалять пользователей по кнопке\n"
         "• просматривать и удалять видео из блоков"
@@ -481,7 +540,7 @@ async def send_admin_video_preview(call: CallbackQuery, block: str, index: int) 
     item = items[index]
     caption = (
         f"<b>{item['title']}</b>\n"
-        f"Блок: {BLOCKS[block]}\n"
+        f"Блок: {get_blocks().get(block, block)}\n"
         f"Позиция: {index + 1}/{len(items)}"
     )
 
@@ -565,6 +624,72 @@ async def admin_cancel(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await safe_edit_or_send(call, "Действие отменено.", admin_main_kb())
     await call.answer("Отменено")
+
+
+@dp.callback_query(F.data == "admin:add_block")
+async def admin_add_block(call: CallbackQuery, state: FSMContext) -> None:
+    update_user_profile(call.from_user)
+
+    if not is_admin(call.from_user.id):
+        await call.answer("Нет доступа", show_alert=True)
+        return
+
+    await state.clear()
+    await state.set_state(AdminBlockFSM.wait_block_title)
+    await safe_edit_or_send(
+        call,
+        "Отправьте название нового блока.\n\nНапример: <b>5️⃣ Дыхание</b>",
+        cancel_kb(),
+    )
+    await call.answer()
+
+
+@dp.message(AdminBlockFSM.wait_block_title, F.text)
+async def admin_receive_block_title(message: Message, state: FSMContext) -> None:
+    update_user_profile(message.from_user)
+
+    if not is_admin(message.from_user.id):
+        return
+
+    title = (message.text or "").strip()
+
+    if not title:
+        await message.answer("Название блока не может быть пустым.", reply_markup=cancel_kb())
+        return
+
+    if len(title) > MAX_BLOCK_TITLE_LENGTH:
+        await message.answer(
+            f"Название блока слишком длинное. Максимум {MAX_BLOCK_TITLE_LENGTH} символов.",
+            reply_markup=cancel_kb(),
+        )
+        return
+
+    if title in get_blocks().values():
+        await message.answer("Такой блок уже существует.", reply_markup=cancel_kb())
+        return
+
+    block_key = generate_block_key(title)
+    DATA["blocks"][block_key] = title
+    DATA["videos"].setdefault(block_key, [])
+    save_data(DATA)
+
+    logger.info("Admin %s added block %s (%s)", message.from_user.id, title, block_key)
+
+    await state.clear()
+    await message.answer(
+        f"Блок добавлен:\n• <b>{title}</b>\n• key: <code>{block_key}</code>",
+        reply_markup=admin_main_kb(),
+    )
+
+
+@dp.message(AdminBlockFSM.wait_block_title)
+async def admin_receive_block_title_invalid(message: Message) -> None:
+    update_user_profile(message.from_user)
+
+    if not is_admin(message.from_user.id):
+        return
+
+    await message.answer("Нужно отправить текстовое название блока.", reply_markup=cancel_kb())
 
 
 @dp.callback_query(F.data == "admin:add_video")
@@ -666,7 +791,7 @@ async def admin_list_blocks(call: CallbackQuery) -> None:
         return
 
     lines = ["<b>Блоки с видео</b>"]
-    for block, title in BLOCKS.items():
+    for block, title in get_blocks().items():
         lines.append(f"• {title} — {len(DATA['videos'].get(block, []))}")
 
     text = "\n".join(lines)
@@ -776,7 +901,7 @@ async def admin_save_video(call: CallbackQuery, state: FSMContext) -> None:
         return
 
     block = call.data.split(":", 2)[2]
-    if block not in BLOCKS:
+    if block not in get_blocks():
         await call.answer("Неизвестный блок", show_alert=True)
         return
 
@@ -806,7 +931,7 @@ async def admin_save_video(call: CallbackQuery, state: FSMContext) -> None:
     )
 
     await state.clear()
-    text = f"Сохранено в блок <b>{BLOCKS[block]}</b>:\n• {title}"
+    text = f"Сохранено в блок <b>{get_blocks()[block]}</b>:\n• {title}"
     await safe_edit_or_send(call, text, admin_main_kb())
     await call.answer("Видео сохранено")
 
@@ -915,14 +1040,15 @@ async def text_router(message: Message, state: FSMContext) -> None:
 
     user_id = message.from_user.id
     text = (message.text or "").strip()
+    aliases = block_aliases()
 
-    if text in BLOCK_ALIASES:
+    if text in aliases:
         if not has_access(user_id):
             await message.answer("Доступ к боту ограничен. Обратитесь к администратору.")
             return
 
         await state.clear()
-        await send_video(message, BLOCK_ALIASES[text], 0)
+        await send_video(message, aliases[text], 0)
         return
 
 
@@ -944,7 +1070,7 @@ async def next_step(call: CallbackQuery) -> None:
         return
 
     _, block, idx_str = parts
-    if block not in BLOCKS or not idx_str.isdigit():
+    if block not in get_blocks() or not idx_str.isdigit():
         await call.answer("Ошибка перехода", show_alert=True)
         return
 
@@ -959,9 +1085,9 @@ async def next_step(call: CallbackQuery) -> None:
     if next_idx < len(items):
         await send_video(call, block, next_idx)
     else:
-        finish_text = BLOCK_FINISH_MESSAGES.get(block, "Блок завершён ✅").format(name=user_name(call))
+        finish_text = BLOCK_FINISH_MESSAGES.get(block, DEFAULT_FINISH_MESSAGE).format(name=user_name(call))
         await bot.send_message(call.from_user.id, finish_text)
-        if block != "practice":
+        if not is_last_block(block):
             await bot.send_message(call.from_user.id, "Выберите блок:", reply_markup=main_kb())
 
     await call.answer()
