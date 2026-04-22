@@ -16,7 +16,7 @@ from aiogram.filters import CommandStart, Command
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 470343161
 
-bot = Bot(TOKEN)
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 DATA_FILE = "data.json"
@@ -37,9 +37,19 @@ def save(file, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-data = load(DATA_FILE, {"users": []})
+data = load(DATA_FILE, {
+    "users": [],
+    "courses": {
+        "1": [],
+        "2": [],
+        "3": [],
+        "4": []
+    }
+})
+
 state = load(STATE_FILE, {})
 admin_state = {}
+pending_video = {}
 
 
 def save_all():
@@ -53,7 +63,7 @@ def allowed(uid: int):
     return uid == ADMIN_ID or uid in data["users"]
 
 
-# -------------------- MAIN MENU --------------------
+# -------------------- KEYBOARDS --------------------
 
 menu = ReplyKeyboardMarkup(
     keyboard=[
@@ -66,67 +76,15 @@ menu = ReplyKeyboardMarkup(
 )
 
 
-# -------------------- ADMIN MENU --------------------
-
 admin_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="➕ Добавить пользователя")],
         [KeyboardButton(text="➖ Удалить пользователя")],
+        [KeyboardButton(text="🎥 Добавить видео")],
         [KeyboardButton(text="🔙 Выйти")]
     ],
     resize_keyboard=True
 )
-
-
-# -------------------- COURSES --------------------
-
-COURSES = {
-    "1": {
-        "finish": "{} , переходи к следующему блоку➡️",
-        "videos": [
-            ("Трель", "BAACAgIAAxkBAAICvmmHnO8V9I3oytM_0IiWhjMTdJp-AAJ6qAACd5hBSKlSxJmdQJHBOgQ"),
-            ("Сирена", "BAACAgIAAxkBAAIDIGmI_kAdS8HC05EHgVyGq9jQVaQoAAJQhQACV81JSEiL0QG73KRUOgQ"),
-            ("Голосовые складки", "BAACAgIAAxkBAAIFbWng_qo7u6OwFP5K_h-GczbCQcC8AAKAnQACU0kIS8ZNCKOp2pSzOwQ"),
-            ("Мягкое небо", "BAACAgIAAxkBAAIHNGnhXL3xHKjyivh9gSnrA0Jse3GzAALdkwACU0kQS34mCZVfDDTvOwQ"),
-            ("NG", "BAACAgIAAxkBAAIDH2mI-58aJh8VzvCnxpHtu9hxj0QhAAI5hQACV81JSDK87Yy0XYZdOgQ"),
-            ("ng A ng Э", "BAACAgIAAxkBAAIEymneqa_G3NtmM8dMxpPONroNQ5U7AAK4lAACYBLxSuqWnm-uZl18OwQ"),
-        ]
-    },
-
-    "2": {
-        "finish": "{} , двигайся к следующему блоку➡️",
-        "videos": [
-            ("А-И-У", "BAACAgIAAxkBAAIFumnhHaYAAbSLYje2d_N4qXiqopvf-AACE5IAAlNJEEsYt2qZlJZTgDsE"),
-            ("Звонкие качества", "BAACAgIAAxkBAAII92nhfu2ymq0kDxyoMFZzMzE289HsAAISlAACU0kQS5YS6-tgJdcyOwQ"),
-            ("ГА ГА ГА", "BAACAgIAAxkBAAIFxGnhJjXXG37cJfTWg273_KUveChxAAJtkgACU0kQSzn02yOQpEhqOwQ"),
-            ("НИ НЭ", "BAACAgIAAxkBAAIF2WnhM-7P38m-B0bGRnTgXnjwaCCKAAISkwACU0kQS3g6-k1iAQt0OwQ"),
-            ("Папайя", "BAACAgIAAxkBAAIF8GnhOty0hfema_C2945TJ3kRNfgQAAJYkwACU0kQSwcyvjHbyS5OOwQ"),
-            ("Пицца", "BAACAgIAAxkBAAIGAAFp4T5pkmCPmMpA_K3_sWJ10OnAaQACcZMAAlNJEEtKFEH1OPL8EjsE"),
-            ("Не мни мини", "BAACAgIAAxkBAAIGC2nhQso05PaTOuxMqgbfmUWKu4vxAAKDkwACU0kQS-5qfczcBdYHOwQ"),
-        ]
-    },
-
-    "3": {
-        "finish": "Пришло время практики → Вокальные упражнения🎤",
-        "videos": [
-            ("Народный звук", "BAACAgIAAxkBAAIGMWnhRgSBfkkdzEi3cD4n4yJtEXDgAAKMkwACU0kQS3E571ltEh5sOwQ"),
-            ("Народный Э", "BAACAgIAAxkBAAIGUmnhSHqm0EHi9zr-xIMSYOGxVI-9AAKRkwACU0kQSzHyfk-FkhYYOwQ"),
-            ("Народный О", "BAACAgIAAxkBAAIGWGnhUD31UYfwrNP7fGRatPn43RISAAKikwACU0kQS6RupTxsjvjcOwQ"),
-            ("Стабильность", "BAACAgIAAxkBAAIGXGnhUIQJ0wHK3IzB1cALXp_wzQl_AAKlkwACU0kQS-5wZs_ul8x1OwQ"),
-        ]
-    },
-
-    "4": {
-        "finish": "<b>С заботой о Вас, Юлия Золотых❤️</b>",
-        "videos": [
-            ("Я не боюсь темноты", "BAACAgIAAxkBAAIGemnhUiaMGOab8Ngh5ki6b1aQHwJMAAKvkwACU0kQS_mkx39_mJTAOwQ"),
-            ("Доброе утро", "BAACAgIAAxkBAAIGfmnhUrpdHCBV1an_Ka86Zz8EVBUHAAKxkwACU0kQS0U45H9dPJY4OwQ"),
-            ("За волной волна", "BAACAgIAAxkBAAIGgmnhUx6A5owEQmTRrxoQlaKWCLCEAAKykwACU0kQS8vGmN3mpHqgOwQ"),
-            ("Фифа", "BAACAgIAAxkBAAIGhmnhVGbMXxnIkK_POOn1yfzDxWmdAAK_kwACU0kQSwMyG1UvEm1vOwQ"),
-            ("Как легко", "BAACAgIAAxkBAAIGimnhVOfQLrZYuaOwukhZ9LktdCFzAALDkwACU0kQS8d1HWfJFB1mOwQ"),
-        ]
-    }
-}
 
 
 # -------------------- UTIL --------------------
@@ -141,6 +99,10 @@ def kb(last: bool):
     ])
 
 
+def get_course(cid):
+    return data["courses"].get(cid, [])
+
+
 # -------------------- START --------------------
 
 @dp.message(CommandStart())
@@ -148,9 +110,7 @@ async def start(m: Message):
     if not allowed(m.from_user.id):
         return await m.answer("Доступ ограничен")
 
-    name = m.from_user.first_name
-    await m.answer(f"Приветствую тебя, {name}!")
-
+    await m.answer(f"Приветствую тебя, {m.from_user.first_name}!")
     await asyncio.sleep(3)
     await m.answer("Выбери блок:", reply_markup=menu)
 
@@ -176,41 +136,47 @@ async def c3(m): await start_course(m, "3")
 async def c4(m): await start_course(m, "4")
 
 
-# -------------------- FLOW --------------------
+# -------------------- VIDEO FLOW --------------------
 
 async def send_video(m: Message, uid: int):
     uid = str(uid)
+
     if uid not in state:
         return
 
     s = state[uid]
-    course = COURSES[s["c"]]
+    course = get_course(s["c"])
     i = s["i"]
 
-    title, vid = course["videos"][i]
+    if i >= len(course):
+        await m.answer("Курс завершён")
+        return
+
+    item = course[i]
 
     await m.answer_video(
-        vid,
-        caption=f"<b>{title}</b>\n\n{bar(i, len(course['videos']))}",
+        item["file_id"],
+        caption=f"<b>{item['name']}</b>\n\n{bar(i, len(course))}",
         parse_mode="HTML",
-        reply_markup=kb(i == len(course["videos"]) - 1)
+        reply_markup=kb(i == len(course) - 1)
     )
 
 
 @dp.callback_query(F.data == "next")
 async def nxt(c: CallbackQuery):
     uid = str(c.from_user.id)
+
     if uid not in state:
         return
 
     s = state[uid]
-    course = COURSES[s["c"]]
+    course = get_course(s["c"])
 
     s["i"] += 1
     save_all()
 
-    if s["i"] >= len(course["videos"]):
-        await c.message.answer(course["finish"].format(c.from_user.first_name), reply_markup=menu)
+    if s["i"] >= len(course):
+        await c.message.answer("Курс завершён", reply_markup=menu)
         return
 
     await send_video(c.message, int(uid))
@@ -227,21 +193,23 @@ async def admin(m: Message):
     await m.answer("Админ-панель:", reply_markup=admin_kb)
 
 
+# -------------------- ADMIN USERS --------------------
+
 @dp.message(F.text == "➕ Добавить пользователя")
-async def add_mode(m: Message):
+async def add_user_mode(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
 
-    admin_state[m.from_user.id] = "add"
+    admin_state[m.from_user.id] = "add_user"
     await m.answer("Отправь ID пользователя")
 
 
 @dp.message(F.text == "➖ Удалить пользователя")
-async def rem_mode(m: Message):
+async def remove_user_mode(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
 
-    admin_state[m.from_user.id] = "remove"
+    admin_state[m.from_user.id] = "remove_user"
     await m.answer("Отправь ID пользователя")
 
 
@@ -254,13 +222,100 @@ async def exit_admin(m: Message):
     await m.answer("Выход", reply_markup=menu)
 
 
+# -------------------- ADD VIDEO FLOW --------------------
+
+@dp.message(F.text == "🎥 Добавить видео")
+async def add_video_start(m: Message):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    admin_state[m.from_user.id] = "choose_course"
+    await m.answer("Выбери курс (1–4)")
+
+
+@dp.message(F.text.in_(["1", "2", "3", "4"]))
+async def choose_course(m: Message):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    if admin_state.get(m.from_user.id) != "choose_course":
+        return
+
+    pending_video[m.from_user.id] = {
+        "course": m.text
+    }
+
+    admin_state[m.from_user.id] = "wait_video"
+    await m.answer("Отправь или перешли видео")
+
+
+# -------------------- RECEIVE VIDEO (FORWARD SUPPORT) --------------------
+
+@dp.message(F.video | F.document)
+async def receive_video(m: Message):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    if admin_state.get(m.from_user.id) != "wait_video":
+        return
+
+    file_id = None
+
+    if m.video:
+        file_id = m.video.file_id
+
+    elif m.document and m.document.mime_type.startswith("video"):
+        file_id = m.document.file_id
+
+    if not file_id:
+        return await m.answer("Отправь именно видео")
+
+    pending_video[m.from_user.id]["file_id"] = file_id
+    admin_state[m.from_user.id] = "wait_name"
+
+    await m.answer("Теперь отправь название")
+
+
+# -------------------- RECEIVE NAME --------------------
+
 @dp.message()
-async def admin_input(m: Message):
+async def receive_name(m: Message):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    if admin_state.get(m.from_user.id) != "wait_name":
+        return
+
+    name = m.text
+    pv = pending_video[m.from_user.id]
+
+    cid = pv["course"]
+
+    data["courses"].setdefault(cid, [])
+
+    data["courses"][cid].append({
+        "name": name,
+        "file_id": pv["file_id"]
+    })
+
+    save_all()
+
+    admin_state[m.from_user.id] = None
+    pending_video[m.from_user.id] = {}
+
+    await m.answer("Видео добавлено ✅")
+
+
+# -------------------- USER MANAGEMENT --------------------
+
+@dp.message()
+async def user_admin_actions(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
 
     mode = admin_state.get(m.from_user.id)
-    if not mode:
+
+    if mode not in ["add_user", "remove_user"]:
         return
 
     try:
@@ -268,11 +323,11 @@ async def admin_input(m: Message):
     except:
         return await m.answer("Неверный ID")
 
-    if mode == "add":
+    if mode == "add_user":
         if uid not in data["users"]:
             data["users"].append(uid)
 
-    if mode == "remove":
+    elif mode == "remove_user":
         if uid in data["users"]:
             data["users"].remove(uid)
 
