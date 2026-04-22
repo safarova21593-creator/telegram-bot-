@@ -38,8 +38,8 @@ BLOCKS = {
 BLOCK_ALIASES = {v: k for k, v in BLOCKS.items()}
 
 BLOCK_FINISH_MESSAGES = {
-    "warmup": "{name}, переходи к следующему блоку2️⃣",
-    "voice": "{name}, двигайся к следующему блоку3️⃣",
+    "warmup": "{name}, переходи к следующему блоку➡️",
+    "voice": "{name}, двигайся к следующему блоку➡️",
     "belt": 'Пришло время реализовать полученные навыки на практике, переходи к блоку "Вокальные упражнения"🎤',
     "practice": (
         "{name}, поздравляю с завершением тренировки!\n"
@@ -61,13 +61,13 @@ def default_data() -> Dict[str, Any]:
                 {"title": "Режимы работы голосовых складок", "video": "BAACAgIAAxkBAAIFbWng_qo7u6OwFP5K_h-GczbCQcC8AAKAnQACU0kIS8ZNCKOp2pSzOwQ"},
                 {"title": "Мягкое небо", "video": "BAACAgIAAxkBAAIHNGnhXL3xHKjyivh9gSnrA0Jse3GzAALdkwACU0kQS34mCZVfDDTvOwQ"},
                 {"title": "NG", "video": "BAACAgIAAxkBAAIDH2mI-58aJh8VzvCnxpHtu9hxj0QhAAI5hQACV81JSDK87Yy0XYZdOgQ"},
-                {"title": "NG/A, NG/Э", "video": "BAACAgIAAxkBAAIEymneqa_G3NtmM8dMxpPONroNQ5U7AAK4lAACYBLxSuqWnm-uZl18OwQ"},
+                {"title": "ng A ng Э", "video": "BAACAgIAAxkBAAIEymneqa_G3NtmM8dMxpPONroNQ5U7AAK4lAACYBLxSuqWnm-uZl18OwQ"},
             ],
             "voice": [
                 {"title": "Основные рабочие звуки А-И-У", "video": "BAACAgIAAxkBAAIFumnhHaYAAbSLYje2d_N4qXiqopvf-AACE5IAAlNJEEsYt2qZlJZTgDsE"},
                 {"title": "Звонкие качества", "video": "BAACAgIAAxkBAAII92nhfu2ymq0kDxyoMFZzMzE289HsAAISlAACU0kQS5YS6-tgJdcyOwQ"},
                 {"title": "ГА ГА ГА, НА НА НА", "video": "BAACAgIAAxkBAAIFxGnhJjXXG37cJfTWg273_KUveChxAAJtkgACU0kQSzn02yOQpEhqOwQ"},
-                {"title": "НИ НЭ НА НО", "video": "BAACAgIAAxkBAAIF2WnhM-7P38m-B0bGRnTgXnjwaCCKAAISkwACU0kQS3g6-k1iAQt0OwQ"},
+                {"title": "НИ НЭ НА НО НУ", "video": "BAACAgIAAxkBAAIF2WnhM-7P38m-B0bGRnTgXnjwaCCKAAISkwACU0kQS3g6-k1iAQt0OwQ"},
                 {"title": "Папайя", "video": "BAACAgIAAxkBAAIF8GnhOty0hfema_C2945TJ3kRNfgQAAJYkwACU0kQSwcyvjHbyS5OOwQ"},
                 {"title": "Пицца", "video": "BAACAgIAAxkBAAIGAAFp4T5pkmCPmMpA_K3_sWJ10OnAaQACcZMAAlNJEEtKFEH1OPL8EjsE"},
                 {"title": "Не мни мне мини", "video": "BAACAgIAAxkBAAIGC2nhQso05PaTOuxMqgbfmUWKu4vxAAKDkwACU0kQS-5qfczcBdYHOwQ"},
@@ -362,9 +362,9 @@ async def send_video(message_or_call: Message | CallbackQuery, block: str, index
 @dp.message(CommandStart())
 async def start_handler(message: Message) -> None:
     if not has_access(message.from_user.id):
-        await message.answer("Доступ к боту ограничен. Обратитесь к администратору: @juliavoice_coach.")
+        await message.answer("Доступ к боту ограничен. Обратитесь к администратору.")
         return
-    await message.answer(f"Приветствую, {message.from_user.first_name}!")
+    await message.answer(f"Привет, {message.from_user.first_name}!")
     await asyncio.sleep(1)
     await message.answer("Выбери блок:", reply_markup=main_kb())
 
@@ -503,7 +503,7 @@ async def admin_open_block(call: CallbackQuery) -> None:
     if not items:
         await call.answer("В этом блоке пока нет видео", show_alert=True)
         return
-    await send_admin_video_preview(call, block, 0)
+    await send_admin_video_preview(call, block, 0, replace_current=True)
     await call.answer()
 
 
@@ -513,7 +513,7 @@ async def admin_view_video(call: CallbackQuery) -> None:
         await call.answer("Нет доступа", show_alert=True)
         return
     _, _, block, index_str = call.data.split(":")
-    await send_admin_video_preview(call, block, int(index_str))
+    await send_admin_video_preview(call, block, int(index_str), replace_current=True)
     await call.answer()
 
 
@@ -553,8 +553,7 @@ async def admin_delete_video(call: CallbackQuery) -> None:
     await bot.send_message(call.from_user.id, f"Удалено: <b>{removed['title']}</b>")
     if items:
         next_index = min(index, len(items) - 1)
-        fake_call = call
-        await send_admin_video_preview(fake_call, block, next_index)
+        await send_admin_video_preview(call, block, next_index)
     else:
         await bot.send_message(
             call.from_user.id,
