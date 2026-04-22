@@ -364,7 +364,7 @@ async def start_handler(message: Message) -> None:
     if not has_access(message.from_user.id):
         await message.answer("Доступ к боту ограничен. Обратитесь к администратору: @juliavoice_coach.")
         return
-    await message.answer(f"Привет, {message.from_user.first_name}!")
+    await message.answer(f"Приветствую, {message.from_user.first_name}!")
     await asyncio.sleep(1)
     await message.answer("Выбери блок:", reply_markup=main_kb())
 
