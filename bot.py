@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -13,13 +12,10 @@ from aiogram.types import (
 )
 from aiogram.filters import CommandStart
 
-
-# -------------------- CONFIG --------------------
-
+import os
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is not set")
+# -------------------- ДОСТУП --------------------
 
 ALLOWED_USERS = {470343161, 1363068163, 787557638, 518077592}
 
@@ -28,143 +24,130 @@ dp = Dispatcher()
 
 logging.basicConfig(level=logging.INFO)
 
-
-# -------------------- DATA --------------------
+# -------------------- ДАННЫЕ --------------------
 
 BLOCKS = {
     "warmup": [
         ("Трель", "BAACAgIAAxkBAAICvmmHnO8V9I3oytM_0IiWhjMTdJp-AAJ6qAACd5hBSKlSxJmdQJHBOgQ"),
         ("Сирена", "BAACAgIAAxkBAAIDIGmI_kAdS8HC05EHgVyGq9jQVaQoAAJQhQACV81JSEiL0QG73KRUOgQ"),
+        ("Режимы работы голосовых складок", "BAACAgIAAxkBAAIFbWng_qo7u6OwFP5K_h-GczbCQcC8AAKAnQACU0kIS8ZNCKOp2pSzOwQ"),
+        ("Мягкое небо", "BAACAgIAAxkBAAIHNGnhXL3xHKjyivh9gSnrA0Jse3GzAALdkwACU0kQS34mCZVfDDTvOwQ"),
+        ("NG", "BAACAgIAAxkBAAIDH2mI-58aJh8VzvCnxpHtu9hxj0QhAAI5hQACV81JSDK87Yy0XYZdOgQ"),
+        ("NG A, NG Э", "BAACAgIAAxkBAAIEymneqa_G3NtmM8dMxpPONroNQ5U7AAK4lAACYBLxSuqWnm-uZl18OwQ"),
     ],
-    "voice": [],
-    "belt": [],
-    "practice": []
+    "voice": [
+        ("Основные рабочие звуки А-И-У", "BAACAgIAAxkBAAIFumnhHaYAAbSLYje2d_N4qXiqopvf-AACE5IAAlNJEEsYt2qZlJZTgDsE"),
+        ("Звонкие качества", "BAACAgIAAxkBAAII92nhfu2ymq0kDxyoMFZzMzE289HsAAISlAACU0kQS5YS6-tgJdcyOwQ"),
+        ("ГА ГА ГА, НА НА НА", "BAACAgIAAxkBAAIFxGnhJjXXG37cJfTWg273_KUveChxAAJtkgACU0kQSzn02yOQpEhqOwQ"),
+        ("НИ НЭ НА НО", "BAACAgIAAxkBAAIF2WnhM-7P38m-B0bGRnTgXnjwaCCKAAISkwACU0kQS3g6-k1iAQt0OwQ"),
+        ("Папайя", "BAACAgIAAxkBAAIF8GnhOty0hfema_C2945TJ3kRNfgQAAJYkwACU0kQSwcyvjHbyS5OOwQ"),
+        ("Пицца", "BAACAgIAAxkBAAIGAAFp4T5pkmCPmMpA_K3_sWJ10OnAaQACcZMAAlNJEEtKFEH1OPL8EjsE"),
+        ("Не мни мне мини", "BAACAgIAAxkBAAIGC2nhQso05PaTOuxMqgbfmUWKu4vxAAKDkwACU0kQS-5qfczcBdYHOwQ"),
+    ],
+    "belt": [
+        ("Народный звук (Бэлтинг)", "BAACAgIAAxkBAAIGMWnhRgSBfkkdzEi3cD4n4yJtEXDgAAKMkwACU0kQS3E571ltEh5sOwQ"),
+        ("Народный Э", "BAACAgIAAxkBAAIGUmnhSHqm0EHi9zr-xIMSYOGxVI-9AAKRkwACU0kQSzHyfk-FkhYYOwQ"),
+        ("Народный О", "BAACAgIAAxkBAAIGWGnhUD31UYfwrNP7fGRatPn43RISAAKikwACU0kQS6RupTxsjvjcOwQ"),
+        ("Стабильность народного звука", "BAACAgIAAxkBAAIGXGnhUIQJ0wHK3IzB1cALXp_wzQl_AAKlkwACU0kQS-5wZs_ul8x1OwQ"),
+    ],
+    "practice": [
+        ("Я не боюсь темноты", "BAACAgIAAxkBAAIGemnhUiaMGOab8Ngh5ki6b1aQHwJMAAKvkwACU0kQS_mkx39_mJTAOwQ"),
+        ("Доброе утро", "BAACAgIAAxkBAAIGfmnhUrpdHCBV1an_Ka86Zz8EVBUHAAKxkwACU0kQS0U45H9dPJY4OwQ"),
+        ("За волной волна", "BAACAgIAAxkBAAIGgmnhUx6A5owEQmTRrxoQlaKWCLCEAAKykwACU0kQS8vGmN3mpHqgOwQ"),
+        ("Фифа", "BAACAgIAAxkBAAIGhmnhVGbMXxnIkK_POOn1yfzDxWmdAAK_kwACU0kQSwMyG1UvEm1vOwQ"),
+        ("Как легко", "BAACAgIAAxkBAAIGimnhVOfQLrZYuaOwukhZ9LktdCFzAALDkwACU0kQS8d1HWfJFB1mOwQ"),
+    ]
 }
 
+# -------------------- СОСТОЯНИЕ --------------------
+
 user_state = {}
-admin_state = {}
 
-
-# -------------------- KEYBOARDS --------------------
-
-admin_kb = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="📦 Блоки", callback_data="admin:blocks")],
-])
+# -------------------- КЛАВИАТУРЫ --------------------
 
 main_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="Разогрев")],
-        [KeyboardButton(text="Рабочие")],
-        [KeyboardButton(text="Народный")],
-        [KeyboardButton(text="Вокальные")],
+        [KeyboardButton(text="1️⃣ Разогрев")],
+        [KeyboardButton(text="2️⃣ Рабочие звуки/звонкие качества")],
+        [KeyboardButton(text="3️⃣ Народный/Бэлтинг")],
+        [KeyboardButton(text="4️⃣ Вокальные упражнения")],
     ],
     resize_keyboard=True
 )
 
-
-def inline_next(block, index):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➡️ Далее", callback_data=f"next:{block}:{index}")]
-    ])
-
+def inline_next(block: str, index: int):
+    last = index == len(BLOCKS[block]) - 1
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="Завершить" if last else "Дальше",
+            callback_data=f"next:{block}:{index}"
+        )
+    ]])
 
 def progress_text(block, index):
     total = len(BLOCKS[block])
-    return f"Шаг {index + 1}/{total}"
-
+    done = index + 1
+    bar = "🟩" * done + "⬜" * (total - done)
+    return f"{bar} {done}/{total}"
 
 # -------------------- START --------------------
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    if message.from_user.id == 470343161:
-        await message.answer("Админ-панель:", reply_markup=admin_kb)
-        return
-
     if message.from_user.id not in ALLOWED_USERS:
-        await message.answer("Доступ ограничен")
+        await message.answer("Доступ к боту ограничен, обратитесь к администартору @juliavoice_coach")
         return
 
+    name = message.from_user.first_name
+
+    await message.answer(f"Приветствую тебя, {name}!")
+    await asyncio.sleep(3)
     await message.answer("Выбери блок:", reply_markup=main_kb)
 
+# -------------------- ВЫБОР БЛОКА --------------------
 
-# -------------------- MAIN ROUTER --------------------
+@dp.message(F.text.contains("Разогрев"))
+async def warmup(message: Message):
+    user_state[message.from_user.id] = {"block": "warmup", "index": 0}
+    await send_video(message, "warmup", 0)
 
-@dp.message(F.text)
-async def handle_message(message: Message):
-    user_id = message.from_user.id
-    text = message.text.lower()
+@dp.message(F.text.contains("Рабочие"))
+async def voice(message: Message):
+    user_state[message.from_user.id] = {"block": "voice", "index": 0}
+    await send_video(message, "voice", 0)
 
-    # ---------------- ADMIN MODE ----------------
-    if user_id in admin_state:
-        state = admin_state[user_id]
+@dp.message(F.text.contains("Народный"))
+async def belt(message: Message):
+    user_state[message.from_user.id] = {"block": "belt", "index": 0}
+    await send_video(message, "belt", 0)
 
-        if state["action"] == "add":
-            try:
-                title, video_id = message.text.split("|")
-                BLOCKS[state["block"]].append((title.strip(), video_id.strip()))
-                await message.answer("Добавлено ✔️")
-                admin_state.pop(user_id)
-            except:
-                await message.answer("Формат: название | video_id")
-            return
+@dp.message(F.text.contains("Вокальные"))
+async def practice(message: Message):
+    user_state[message.from_user.id] = {"block": "practice", "index": 0}
+    await send_video(message, "practice", 0)
 
-        if state["action"] == "delete":
-            try:
-                idx = int(message.text)
-                block = state["block"]
+# -------------------- ОТПРАВКА ВИДЕО --------------------
 
-                if 0 <= idx < len(BLOCKS[block]):
-                    BLOCKS[block].pop(idx)
-                    await message.answer("Удалено ✔️")
-                else:
-                    await message.answer("Неверный номер")
-
-                admin_state.pop(user_id)
-            except:
-                await message.answer("Введи число")
-            return
-
-    # ---------------- USER MODE ----------------
-    if "разогрев" in text:
-        user_state[user_id] = {"block": "warmup", "index": 0}
-        await send_video(message, "warmup", 0)
-
-    elif "рабочие" in text:
-        user_state[user_id] = {"block": "voice", "index": 0}
-        await send_video(message, "voice", 0)
-
-    elif "народный" in text:
-        user_state[user_id] = {"block": "belt", "index": 0}
-        await send_video(message, "belt", 0)
-
-    elif "вокальные" in text:
-        user_state[user_id] = {"block": "practice", "index": 0}
-        await send_video(message, "practice", 0)
-
-
-# -------------------- VIDEO --------------------
-
-async def send_video(message, block, index):
-    user_id = message.from_user.id
+async def send_video(message_or_call, block, index):
+    user_id = message_or_call.from_user.id
     title, video_id = BLOCKS[block][index]
 
-    caption = f"{title}\n\n{progress_text(block, index)}"
+    caption = f"<b>{title}</b>\n\n{progress_text(block, index)}"
 
     try:
         await bot.send_video(
             chat_id=user_id,
             video=video_id,
             caption=caption,
+            parse_mode="HTML",
             reply_markup=inline_next(block, index),
-            protect_content=True
+            protect_content=True   # ЗАПРЕТ ПЕРЕСЫЛКИ
         )
     except Exception as e:
-        logging.error(e)
-        await message.answer("Ошибка загрузки")
+        logging.error(f"VIDEO ERROR {title}: {e}")
+        await bot.send_message(user_id, f"Ошибка загрузки: {title}")
 
-
-# -------------------- NEXT --------------------
+# -------------------- CALLBACK --------------------
 
 @dp.callback_query(F.data.startswith("next:"))
 async def next_step(call: CallbackQuery):
@@ -176,66 +159,36 @@ async def next_step(call: CallbackQuery):
 
     if next_idx < len(BLOCKS[block]):
         user_state[user_id] = {"block": block, "index": next_idx}
-        await send_video(call.message, block, next_idx)
+        await send_video(call, block, next_idx)
+
     else:
-        await call.message.answer("Блок завершён")
+        if block == "warmup":
+            await bot.send_message(user_id, f"{call.from_user.first_name}, переходи к следующему блоку➡️2️⃣ ")
+
+        elif block == "voice":
+            await bot.send_message(user_id, f"{call.from_user.first_name}, двигайся к следующему блоку➡️3️⃣")
+
+        elif block == "belt":
+            await bot.send_message(
+                user_id,
+                'Пришло время реализовать полученные навыки на практике, переходи к блоку "Вокальные упражнения"🎤'
+            )
+
+        else:
+            await bot.send_message(
+                user_id,
+                f"{call.from_user.first_name}, поздравляю с завершением тренировки!\n\n"
+                f"Для закрепления стойкого результата делайте эти практики регулярно.\n\n"
+                f"<b>С заботой о Вас, Юлия Золотых❤️</b>",
+                parse_mode="HTML"
+            )
 
     await call.answer()
-
-
-# -------------------- ADMIN --------------------
-
-@dp.callback_query(F.data == "admin:blocks")
-async def admin_blocks(call: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=b, callback_data=f"admin:block:{b}")]
-        for b in BLOCKS.keys()
-    ])
-
-    await call.message.answer("Блоки:", reply_markup=kb)
-    await call.answer()
-
-
-@dp.callback_query(F.data.startswith("admin:block:"))
-async def admin_block(call: CallbackQuery):
-    block = call.data.split(":")[2]
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Добавить", callback_data=f"admin:add:{block}")],
-        [InlineKeyboardButton(text="🗑 Удалить", callback_data=f"admin:delete:{block}")],
-    ])
-
-    await call.message.answer(f"Блок: {block}", reply_markup=kb)
-    await call.answer()
-
-
-@dp.callback_query(F.data.startswith("admin:add:"))
-async def admin_add(call: CallbackQuery):
-    block = call.data.split(":")[2]
-    admin_state[call.from_user.id] = {"action": "add", "block": block}
-    await call.message.answer("Название | video_id")
-    await call.answer()
-
-
-@dp.callback_query(F.data.startswith("admin:delete:"))
-async def admin_delete(call: CallbackQuery):
-    block = call.data.split(":")[2]
-
-    text = "\n".join(
-        f"{i}. {t}" for i, (t, _) in enumerate(BLOCKS[block])
-    )
-
-    admin_state[call.from_user.id] = {"action": "delete", "block": block}
-    await call.message.answer(text + "\n\nВведите номер")
-    await call.answer()
-
 
 # -------------------- RUN --------------------
 
 async def main():
-    logging.info("Bot started")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
