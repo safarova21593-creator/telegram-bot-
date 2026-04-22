@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import uuid
 from typing import Any, Dict, List
 
 from aiogram import Bot, Dispatcher, F
@@ -166,6 +167,17 @@ def ensure_data_shape(data: Dict[str, Any]) -> Dict[str, Any]:
 
     for block in BLOCKS.keys():
         data["videos"].setdefault(block, [])
+        normalized_items = []
+        for item in data["videos"][block]:
+            if not isinstance(item, dict):
+                continue
+            normalized = {
+                "id": str(item.get("id") or uuid.uuid4().hex[:12]),
+                "title": item.get("title", "Без названия"),
+                "video": item.get("video", ""),
+            }
+            normalized_items.append(normalized)
+        data["videos"][block] = normalized_items
 
     return data
 
@@ -195,6 +207,7 @@ def save_data(data: Dict[str, Any]) -> None:
 
 
 DATA = load_data()
+save_data(DATA)
 admin_state: Dict[int, Dict[str, Any]] = {}
 
 
@@ -257,7 +270,7 @@ def admin_blocks_kb(prefix: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def admin_video_item_kb(block: str, index: int, total: int) -> InlineKeyboardMarkup:
+def admin_video_item_kb(block: str, index: int, total: int, item_id: str) -> InlineKeyboardMarkup:
     rows: List[List[InlineKeyboardButton]] = []
     nav_row: List[InlineKeyboardButton] = []
     if index > 0:
@@ -266,7 +279,7 @@ def admin_video_item_kb(block: str, index: int, total: int) -> InlineKeyboardMar
         nav_row.append(InlineKeyboardButton(text="➡️", callback_data=f"admin:view:{block}:{index+1}"))
     if nav_row:
         rows.append(nav_row)
-    rows.append([InlineKeyboardButton(text="🗑 Удалить видео", callback_data=f"admin:delete_video:{block}:{index}")])
+    rows.append([InlineKeyboardButton(text="🗑 Удалить видео", callback_data=f"admin:delete_video:{block}:{item_id}")])
     rows.append([InlineKeyboardButton(text="⬅️ К блокам", callback_data="admin:list_blocks")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -445,35 +458,39 @@ async def admin_delete_video(call: CallbackQuery) -> None:
         await call.answer("Нет доступа", show_alert=True)
         return
 
-    _, _, _, block, index = call.data.split(":")
-    index = int(index)
-    items = DATA["videos"].get(block, [])
-
-    if not (0 <= index < len(items)):
-        await call.answer("Видео не найдено", show_alert=True)
-        return
-
-    removed = items.pop(index)
-    save_data(DATA)
-
     try:
-        await call.message.delete()
-    except Exception:
-        pass
+        _, _, _, block, item_id = call.data.split(":", 4)
+        items = DATA["videos"].get(block, [])
+        remove_index = next((i for i, item in enumerate(items) if item.get("id") == item_id), -1)
 
-    await bot.send_message(call.from_user.id, f"Удалено: <b>{removed['title']}</b>")
+        if remove_index == -1:
+            await call.answer("Видео не найдено", show_alert=True)
+            return
 
-    if items:
-        new_index = min(index, len(items) - 1)
-        await send_admin_video_preview(call, block, new_index)
-    else:
-        await bot.send_message(
-            call.from_user.id,
-            "В этом блоке больше нет видео.",
-            reply_markup=admin_blocks_kb("admin:block"),
-        )
+        removed = items.pop(remove_index)
+        save_data(DATA)
 
-    await call.answer("Удалено")
+        try:
+            await bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
+
+        await bot.send_message(call.from_user.id, f"Удалено: <b>{removed['title']}</b>")
+
+        if items:
+            new_index = min(remove_index, len(items) - 1)
+            await send_admin_video_preview(call, block, new_index)
+        else:
+            await bot.send_message(
+                call.from_user.id,
+                "В этом блоке больше нет видео.",
+                reply_markup=admin_blocks_kb("admin:block"),
+            )
+
+        await call.answer("Удалено")
+    except Exception as e:
+        logging.exception("Ошибка удаления видео")
+        await call.answer(f"Ошибка удаления: {e}", show_alert=True)
 
 
 @dp.message(F.video)
@@ -593,6 +610,7 @@ async def admin_save_video(call: CallbackQuery) -> None:
         return
 
     DATA["videos"].setdefault(block, []).append({
+        "id": uuid.uuid4().hex[:12],
         "title": title,
         "video": file_id,
     })
@@ -646,7 +664,7 @@ async def send_admin_video_preview(call: CallbackQuery, block: str, index: int) 
     await call.message.answer_video(
         video=item["video"],
         caption=caption,
-        reply_markup=admin_video_item_kb(block, index, len(items)),
+        reply_markup=admin_video_item_kb(block, index, len(items), item["id"]),
         protect_content=False,
     )
 
