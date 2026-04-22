@@ -456,13 +456,22 @@ async def admin_delete_video(call: CallbackQuery) -> None:
     removed = items.pop(index)
     save_data(DATA)
 
-    await call.message.answer(f"Удалено: <b>{removed['title']}</b>")
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+
+    await bot.send_message(call.from_user.id, f"Удалено: <b>{removed['title']}</b>")
 
     if items:
         new_index = min(index, len(items) - 1)
         await send_admin_video_preview(call, block, new_index)
     else:
-        await call.message.answer("В этом блоке больше нет видео.", reply_markup=admin_blocks_kb("admin:block"))
+        await bot.send_message(
+            call.from_user.id,
+            "В этом блоке больше нет видео.",
+            reply_markup=admin_blocks_kb("admin:block"),
+        )
 
     await call.answer("Удалено")
 
