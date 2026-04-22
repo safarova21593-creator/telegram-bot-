@@ -51,7 +51,7 @@ BLOCK_FINISH_MESSAGES = {
 
 
 def default_data() -> Dict[str, Any]:
-    return {
+    data = {
         "allowed_users": [470343161],
         "videos": {
             "warmup": [
@@ -152,6 +152,8 @@ def default_data() -> Dict[str, Any]:
             ],
         },
     }
+
+    return ensure_data_shape(data)
 
 
 def ensure_data_shape(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -664,7 +666,7 @@ async def send_admin_video_preview(call: CallbackQuery, block: str, index: int) 
     await call.message.answer_video(
         video=item["video"],
         caption=caption,
-        reply_markup=admin_video_item_kb(block, index, len(items), item["id"]),
+        reply_markup=admin_video_item_kb(block, index, len(items), str(item.get("id") or "missing")),
         protect_content=False,
     )
 
