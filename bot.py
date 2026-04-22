@@ -13,25 +13,17 @@ from aiogram.types import (
 from aiogram.filters import CommandStart
 
 import os
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # -------------------- ДОСТУП --------------------
 
 ALLOWED_USERS = {470343161, 1363068163, 787557638, 518077592}
 
-ADMIN_USERS = {470343161}
-
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_USERS
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 logging.basicConfig(level=logging.INFO)
-
-# -------------------- АДМИН СОСТОЯНИЕ --------------------
-
-admin_state = {}
 
 # -------------------- ДАННЫЕ --------------------
 
@@ -71,6 +63,7 @@ BLOCKS = {
 # -------------------- СОСТОЯНИЕ --------------------
 
 user_state = {}
+admin_state = {}
 
 # -------------------- КЛАВИАТУРЫ --------------------
 
@@ -99,79 +92,91 @@ def progress_text(block, index):
     bar = "🟩" * done + "⬜" * (total - done)
     return f"{bar} {done}/{total}"
 
+# -------------------- ADMIN MENU --------------------
+
+ADMIN_MENU = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="➕ Добавить видео", callback_data="admin:add")],
+    [InlineKeyboardButton(text="📦 Блоки", callback_data="admin:blocks")]
+])
+
 # -------------------- START --------------------
 
 @dp.message(CommandStart())
 async def start(message: Message):
     if message.from_user.id not in ALLOWED_USERS:
-        await message.answer("Доступ к боту ограничен, обратитесь к администратору @juliavoice_coach")
+        await message.answer("Доступ ограничен")
         return
 
-    name = message.from_user.first_name
-
-    await message.answer(f"Приветствую тебя, {name}!")
-    await asyncio.sleep(3)
+    await message.answer(f"Привет, {message.from_user.first_name}!")
+    await asyncio.sleep(1)
     await message.answer("Выбери блок:", reply_markup=main_kb)
 
-# -------------------- АДМИН ПАНЕЛЬ --------------------
+# -------------------- ADMIN ENTRY --------------------
 
 @dp.message(F.text == "/admin")
-async def admin(message: Message):
-    if not is_admin(message.from_user.id):
+async def admin_panel(message: Message):
+    if message.from_user.id not in ALLOWED_USERS:
         return
 
-    await message.answer(
-        "АДМИН КОМАНДЫ:\n\n"
-        "/add_user ID\n"
-        "/del_user ID\n"
-        "/add_video block|title|file_id\n"
-        "/del_video block|index"
-    )
+    await message.answer("Админ-панель:", reply_markup=ADMIN_MENU)
 
-@dp.message(F.text.startswith("/add_user"))
-async def add_user(message: Message):
-    if not is_admin(message.from_user.id):
+@dp.callback_query(F.data == "admin:add")
+async def admin_add(call: CallbackQuery):
+    if call.from_user.id not in ALLOWED_USERS:
         return
 
-    user_id = int(message.text.split()[1])
-    ALLOWED_USERS.add(user_id)
-    await message.answer(f"Добавлен пользователь {user_id}")
+    admin_state[call.from_user.id] = {"step": "choose_block"}
 
-@dp.message(F.text.startswith("/del_user"))
-async def del_user(message: Message):
-    if not is_admin(message.from_user.id):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Разогрев", callback_data="add:warmup")],
+        [InlineKeyboardButton(text="Рабочие", callback_data="add:voice")],
+        [InlineKeyboardButton(text="Бэлтинг", callback_data="add:belt")],
+        [InlineKeyboardButton(text="Практика", callback_data="add:practice")]
+    ])
+
+    await call.message.answer("Выбери блок:", reply_markup=kb)
+    await call.answer()
+
+@dp.callback_query(F.data.startswith("add:"))
+async def choose_block(call: CallbackQuery):
+    block = call.data.split(":")[1]
+
+    admin_state[call.from_user.id] = {
+        "step": "wait_video",
+        "block": block
+    }
+
+    await call.message.answer("Отправь видео (как файл или видео)")
+    await call.answer()
+
+# -------------------- VIDEO UPLOAD (NO FILE ID MANUAL) --------------------
+
+@dp.message(F.video)
+async def handle_video(message: Message):
+    user_id = message.from_user.id
+
+    if user_id not in ALLOWED_USERS:
         return
 
-    user_id = int(message.text.split()[1])
-    ALLOWED_USERS.discard(user_id)
-    await message.answer(f"Удалён пользователь {user_id}")
-
-@dp.message(F.text.startswith("/add_video"))
-async def add_video(message: Message):
-    if not is_admin(message.from_user.id):
+    if user_id not in admin_state:
         return
 
-    data = message.text.split(" ", 1)[1]
-    block, title, file_id = data.split("|")
+    state = admin_state[user_id]
 
-    BLOCKS.setdefault(block, [])
+    if state.get("step") != "wait_video":
+        return
+
+    block = state["block"]
+    file_id = message.video.file_id
+    title = message.caption or "Без названия"
+
     BLOCKS[block].append((title, file_id))
 
-    await message.answer(f"Добавлено: {title}")
+    admin_state.pop(user_id, None)
 
-@dp.message(F.text.startswith("/del_video"))
-async def del_video(message: Message):
-    if not is_admin(message.from_user.id):
-        return
+    await message.answer(f"Добавлено в блок {block}")
 
-    data = message.text.split(" ", 1)[1]
-    block, index = data.split("|")
-    index = int(index)
-
-    removed = BLOCKS[block].pop(index)
-    await message.answer(f"Удалено: {removed[0]}")
-
-# -------------------- ВЫБОР БЛОКА --------------------
+# -------------------- USER BLOCKS --------------------
 
 @dp.message(F.text.contains("Разогрев"))
 async def warmup(message: Message):
@@ -193,7 +198,7 @@ async def practice(message: Message):
     user_state[message.from_user.id] = {"block": "practice", "index": 0}
     await send_video(message, "practice", 0)
 
-# -------------------- ОТПРАВКА ВИДЕО --------------------
+# -------------------- SEND VIDEO --------------------
 
 async def send_video(message_or_call, block, index):
     user_id = message_or_call.from_user.id
@@ -211,10 +216,10 @@ async def send_video(message_or_call, block, index):
             protect_content=True
         )
     except Exception as e:
-        logging.error(f"VIDEO ERROR {title}: {e}")
-        await bot.send_message(user_id, f"Ошибка загрузки: {title}")
+        logging.error(e)
+        await bot.send_message(user_id, "Ошибка загрузки")
 
-# -------------------- CALLBACK --------------------
+# -------------------- CALLBACK NEXT --------------------
 
 @dp.callback_query(F.data.startswith("next:"))
 async def next_step(call: CallbackQuery):
@@ -227,7 +232,6 @@ async def next_step(call: CallbackQuery):
     if next_idx < len(BLOCKS[block]):
         user_state[user_id] = {"block": block, "index": next_idx}
         await send_video(call, block, next_idx)
-
     else:
         await bot.send_message(user_id, "Блок завершён")
 
