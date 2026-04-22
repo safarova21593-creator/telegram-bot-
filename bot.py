@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
@@ -37,15 +37,118 @@ BLOCKS = {
 
 BLOCK_ALIASES = {v: k for k, v in BLOCKS.items()}
 
+BLOCK_FINISH_MESSAGES = {
+    "warmup": "{name}, переходи к следующему блоку➡️",
+    "voice": "{name}, двигайся к следующему блоку➡️",
+    "belt": "Пришло время реализовать полученные навыки на практике, переходи к блоку \"Вокальные упражнения\"🎤",
+    "practice": (
+        "{name}, поздравляю с завершением тренировки!\n"
+        "Для закрепления стойкого результата делайте эти практики регулярно.\n\n"
+        "<b>С заботой о Вас, Юлия Золотых❤️</b>"
+    ),
+}
+
 
 def default_data() -> Dict[str, Any]:
     return {
         "allowed_users": [470343161],
         "videos": {
-            "warmup": [],
-            "voice": [],
-            "belt": [],
-            "practice": [],
+            "warmup": [
+                {
+                    "title": "Трель",
+                    "video": "BAACAgIAAxkBAAICvmmHnO8V9I3oytM_0IiWhjMTdJp-AAJ6qAACd5hBSKlSxJmdQJHBOgQ",
+                },
+                {
+                    "title": "Сирена",
+                    "video": "BAACAgIAAxkBAAIDIGmI_kAdS8HC05EHgVyGq9jQVaQoAAJQhQACV81JSEiL0QG73KRUOgQ",
+                },
+                {
+                    "title": "Режимы работы голосовых складок",
+                    "video": "BAACAgIAAxkBAAIFbWng_qo7u6OwFP5K_h-GczbCQcC8AAKAnQACU0kIS8ZNCKOp2pSzOwQ",
+                },
+                {
+                    "title": "Мягкое небо",
+                    "video": "BAACAgIAAxkBAAIHNGnhXL3xHKjyivh9gSnrA0Jse3GzAALdkwACU0kQS34mCZVfDDTvOwQ",
+                },
+                {
+                    "title": "NG",
+                    "video": "BAACAgIAAxkBAAIDH2mI-58aJh8VzvCnxpHtu9hxj0QhAAI5hQACV81JSDK87Yy0XYZdOgQ",
+                },
+                {
+                    "title": "ng A ng Э",
+                    "video": "BAACAgIAAxkBAAIEymneqa_G3NtmM8dMxpPONroNQ5U7AAK4lAACYBLxSuqWnm-uZl18OwQ",
+                },
+            ],
+            "voice": [
+                {
+                    "title": "Основные рабочие звуки А-И-У",
+                    "video": "BAACAgIAAxkBAAIFumnhHaYAAbSLYje2d_N4qXiqopvf-AACE5IAAlNJEEsYt2qZlJZTgDsE",
+                },
+                {
+                    "title": "Звонкие качества",
+                    "video": "BAACAgIAAxkBAAII92nhfu2ymq0kDxyoMFZzMzE289HsAAISlAACU0kQS5YS6-tgJdcyOwQ",
+                },
+                {
+                    "title": "ГА ГА ГА, НА НА НА",
+                    "video": "BAACAgIAAxkBAAIFxGnhJjXXG37cJfTWg273_KUveChxAAJtkgACU0kQSzn02yOQpEhqOwQ",
+                },
+                {
+                    "title": "НИ НЭ НА НО НУ",
+                    "video": "BAACAgIAAxkBAAIF2WnhM-7P38m-B0bGRnTgXnjwaCCKAAISkwACU0kQS3g6-k1iAQt0OwQ",
+                },
+                {
+                    "title": "Папайя",
+                    "video": "BAACAgIAAxkBAAIF8GnhOty0hfema_C2945TJ3kRNfgQAAJYkwACU0kQSwcyvjHbyS5OOwQ",
+                },
+                {
+                    "title": "Пицца",
+                    "video": "BAACAgIAAxkBAAIGAAFp4T5pkmCPmMpA_K3_sWJ10OnAaQACcZMAAlNJEEtKFEH1OPL8EjsE",
+                },
+                {
+                    "title": "Не мни мне мини",
+                    "video": "BAACAgIAAxkBAAIGC2nhQso05PaTOuxMqgbfmUWKu4vxAAKDkwACU0kQS-5qfczcBdYHOwQ",
+                },
+            ],
+            "belt": [
+                {
+                    "title": "Народный звук (Бэлтинг), объяснение",
+                    "video": "BAACAgIAAxkBAAIGMWnhRgSBfkkdzEi3cD4n4yJtEXDgAAKMkwACU0kQS3E571ltEh5sOwQ",
+                },
+                {
+                    "title": "Народный Э",
+                    "video": "BAACAgIAAxkBAAIGUmnhSHqm0EHi9zr-xIMSYOGxVI-9AAKRkwACU0kQSzHyfk-FkhYYOwQ",
+                },
+                {
+                    "title": "Народный О",
+                    "video": "BAACAgIAAxkBAAIGWGnhUD31UYfwrNP7fGRatPn43RISAAKikwACU0kQS6RupTxsjvjcOwQ",
+                },
+                {
+                    "title": "Стабильность народного звука",
+                    "video": "BAACAgIAAxkBAAIGXGnhUIQJ0wHK3IzB1cALXp_wzQl_AAKlkwACU0kQS-5wZs_ul8x1OwQ",
+                },
+            ],
+            "practice": [
+                {
+                    "title": "Я не боюсь темноты",
+                    "video": "BAACAgIAAxkBAAIGemnhUiaMGOab8Ngh5ki6b1aQHwJMAAKvkwACU0kQS_mkx39_mJTAOwQ",
+                },
+                {
+                    "title": "Доброе утро",
+                    "video": "BAACAgIAAxkBAAIGfmnhUrpdHCBV1an_Ka86Zz8EVBUHAAKxkwACU0kQS0U45H9dPJY4OwQ",
+                },
+                {
+                    "title": "За волной волна",
+                    "video": "BAACAgIAAxkBAAIGgmnhUx6A5owEQmTRrxoQlaKWCLCEAAKykwACU0kQS8vGmN3mpHqgOwQ",
+                },
+                {
+                    "title": "Фифа",
+                    "video": "BAACAgIAAxkBAAIGhmnhVGbMXxnIkK_POOn1yfzDxWmdAAK_kwACU0kQSwMyG1UvEm1vOwQ",
+                },
+                {
+                    "title": "Как легко",
+                    "video": "BAACAgIAAxkBAAIGimnhVOfQLrZYuaOwukhZ9LktdCFzAALDkwACU0kQS8d1HWfJFB1mOwQ",
+                },
+            ],
         },
     }
 
@@ -55,7 +158,6 @@ def ensure_data_shape(data: Dict[str, Any]) -> Dict[str, Any]:
         data["allowed_users"] = [470343161]
 
     if "videos" not in data or not isinstance(data["videos"], dict):
-        # поддержка старого формата
         old = {k: data.get(k, []) for k in BLOCKS.keys()}
         data = {
             "allowed_users": data.get("allowed_users", [470343161]),
@@ -76,7 +178,15 @@ def load_data() -> Dict[str, Any]:
 
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         raw = json.load(f)
-    return ensure_data_shape(raw)
+
+    data = ensure_data_shape(raw)
+
+    # если файл пустой по блокам, подставляем стартовые видео
+    if all(not data["videos"].get(block) for block in BLOCKS):
+        data = default_data()
+        save_data(data)
+
+    return data
 
 
 def save_data(data: Dict[str, Any]) -> None:
@@ -101,6 +211,11 @@ def is_admin(user_id: int) -> bool:
 
 def has_access(user_id: int) -> bool:
     return user_id in get_allowed_users()
+
+
+def user_display_name(message_or_call: Message | CallbackQuery) -> str:
+    first_name = (message_or_call.from_user.first_name or "Пользователь").strip()
+    return first_name
 
 
 def main_kb() -> ReplyKeyboardMarkup:
@@ -139,20 +254,6 @@ def admin_users_kb() -> InlineKeyboardMarkup:
 def admin_blocks_kb(prefix: str) -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton(text=title, callback_data=f"{prefix}:{key}")] for key, title in BLOCKS.items()]
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:back")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def video_manage_kb(block: str, index: int, last: bool) -> InlineKeyboardMarkup:
-    rows = [
-        [
-            InlineKeyboardButton(
-                text="✅ Завершить" if last else "➡️ Дальше",
-                callback_data=f"next:{block}:{index}",
-            )
-        ]
-    ]
-    if is_admin_view_block(block):
-        pass
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -203,10 +304,6 @@ def users_text() -> str:
     return "\n".join(lines)
 
 
-def is_admin_view_block(block: str) -> bool:
-    return block in BLOCKS
-
-
 async def show_admin_panel(target: Message | CallbackQuery) -> None:
     text = (
         "<b>Админ-панель</b>\n\n"
@@ -218,10 +315,7 @@ async def show_admin_panel(target: Message | CallbackQuery) -> None:
     if isinstance(target, Message):
         await target.answer(text, reply_markup=admin_main_kb())
     else:
-        if target.message and target.message.video:
-            await target.message.answer(text, reply_markup=admin_main_kb())
-        else:
-            await target.message.edit_text(text, reply_markup=admin_main_kb())
+        await target.message.edit_text(text, reply_markup=admin_main_kb())
 
 
 @dp.message(CommandStart())
@@ -231,7 +325,7 @@ async def start_handler(message: Message) -> None:
         await message.answer("Доступ к боту ограничен. Обратитесь к администратору.")
         return
 
-    await message.answer(f"Привет, {message.from_user.first_name}!")
+    await message.answer(f"Привет, {user_display_name(message)}!")
     await asyncio.sleep(1)
     await message.answer("Выбери блок:", reply_markup=main_kb())
 
@@ -362,12 +456,12 @@ async def admin_delete_video(call: CallbackQuery) -> None:
     removed = items.pop(index)
     save_data(DATA)
 
+    await call.message.answer(f"Удалено: <b>{removed['title']}</b>")
+
     if items:
         new_index = min(index, len(items) - 1)
-        await call.message.answer(f"Удалено: <b>{removed['title']}</b>")
         await send_admin_video_preview(call, block, new_index)
     else:
-        await call.message.answer(f"Удалено: <b>{removed['title']}</b>")
         await call.message.answer("В этом блоке больше нет видео.", reply_markup=admin_blocks_kb("admin:block"))
 
     await call.answer("Удалено")
@@ -562,7 +656,9 @@ async def next_step(call: CallbackQuery) -> None:
     if next_idx < len(items):
         await send_video(call, block, next_idx)
     else:
-        await bot.send_message(call.from_user.id, "Блок завершён ✅")
+        finish_message = BLOCK_FINISH_MESSAGES.get(block, "Блок завершён ✅")
+        finish_message = finish_message.format(name=user_display_name(call))
+        await bot.send_message(call.from_user.id, finish_message)
 
     await call.answer()
 
