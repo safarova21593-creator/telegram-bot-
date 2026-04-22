@@ -62,6 +62,7 @@ BLOCKS = {
 # -------------------- СОСТОЯНИЕ --------------------
 
 user_state = {}
+admin_state = {}
 
 # -------------------- КЛАВИАТУРЫ --------------------
 
@@ -74,6 +75,10 @@ main_kb = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
 )
+
+admin_kb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="➕ Добавить видео", callback_data="admin:add_video")]
+])
 
 def inline_next(block: str, index: int):
     last = index == len(BLOCKS[block]) - 1
@@ -95,14 +100,56 @@ def progress_text(block, index):
 @dp.message(CommandStart())
 async def start(message: Message):
     if message.from_user.id not in ALLOWED_USERS:
-        await message.answer("Доступ к боту ограничен, обратитесь к администартору @juliavoice_coach")
+        await message.answer("Доступ к боту ограничен, обратитесь к администратору @juliavoice_coach")
         return
 
     name = message.from_user.first_name
-
     await message.answer(f"Приветствую тебя, {name}!")
     await asyncio.sleep(3)
     await message.answer("Выбери блок:", reply_markup=main_kb)
+
+# -------------------- АДМИН-ПАНЕЛЬ --------------------
+
+@dp.message(F.text == "/admin")
+async def admin_panel(message: Message):
+    if message.from_user.id not in ALLOWED_USERS:
+        return
+    await message.answer("Админ-панель:", reply_markup=admin_kb)
+
+@dp.callback_query(F.data == "admin:add_video")
+async def admin_add_video(call: CallbackQuery):
+    admin_state[call.from_user.id] = "wait_block"
+    await call.message.answer("В какой блок добавить видео? (warmup / voice / belt / practice)")
+    await call.answer()
+
+@dp.message()
+async def admin_flow(message: Message):
+    user_id = message.from_user.id
+
+    if user_id not in ALLOWED_USERS:
+        return
+
+    state = admin_state.get(user_id)
+
+    if state == "wait_block":
+        admin_state[user_id] = {"step": "wait_video", "block": message.text}
+        await message.answer("Теперь просто отправь видео 👇")
+        return
+
+    if isinstance(state, dict) and state.get("step") == "wait_video":
+        if message.video:
+            block = state["block"]
+            file_id = message.video.file_id
+            title = message.video.file_name or "Видео"
+
+            BLOCKS.setdefault(block, []).append((title, file_id))
+
+            admin_state.pop(user_id, None)
+
+            await message.answer("Видео добавлено ✅")
+        else:
+            await message.answer("Пришли именно видео")
+        return
 
 # -------------------- ВЫБОР БЛОКА --------------------
 
@@ -141,7 +188,7 @@ async def send_video(message_or_call, block, index):
             caption=caption,
             parse_mode="HTML",
             reply_markup=inline_next(block, index),
-            protect_content=True   # ЗАПРЕТ ПЕРЕСЫЛКИ
+            protect_content=True
         )
     except Exception as e:
         logging.error(f"VIDEO ERROR {title}: {e}")
@@ -162,26 +209,7 @@ async def next_step(call: CallbackQuery):
         await send_video(call, block, next_idx)
 
     else:
-        if block == "warmup":
-            await bot.send_message(user_id, f"{call.from_user.first_name}, переходи к следующему блоку➡️2️⃣ ")
-
-        elif block == "voice":
-            await bot.send_message(user_id, f"{call.from_user.first_name}, двигайся к следующему блоку➡️3️⃣")
-
-        elif block == "belt":
-            await bot.send_message(
-                user_id,
-                'Пришло время реализовать полученные навыки на практике, переходи к блоку "Вокальные упражнения"🎤'
-            )
-
-        else:
-            await bot.send_message(
-                user_id,
-                f"{call.from_user.first_name}, поздравляю с завершением тренировки!\n\n"
-                f"Для закрепления стойкого результата делайте эти практики регулярно.\n\n"
-                f"<b>С заботой о Вас, Юлия Золотых❤️</b>",
-                parse_mode="HTML"
-            )
+        await bot.send_message(user_id, "Блок завершён")
 
     await call.answer()
 
