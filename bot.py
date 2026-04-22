@@ -349,6 +349,26 @@ def update_user_profile(user: User) -> None:
     save_data(DATA)
 
 
+def move_block(block_key: str, direction: str) -> bool:
+    blocks = DATA.get("blocks", {})
+    keys = list(blocks.keys())
+    if block_key not in keys:
+        return False
+
+    idx = keys.index(block_key)
+    if direction == "up" and idx > 0:
+        keys[idx - 1], keys[idx] = keys[idx], keys[idx - 1]
+    elif direction == "down" and idx < len(keys) - 1:
+        keys[idx + 1], keys[idx] = keys[idx], keys[idx + 1]
+    else:
+        return False
+
+    DATA["blocks"] = {k: blocks[k] for k in keys}
+    DATA["videos"] = {k: DATA["videos"].get(k, []) for k in keys}
+    save_data(DATA)
+    return True
+
+
 def format_user_line(uid: int) -> str:
     profile = DATA.get("profiles", {}).get(str(uid), {})
     username = str(profile.get("username", "")).strip()
@@ -387,10 +407,11 @@ def cancel_kb() -> InlineKeyboardMarkup:
 def admin_main_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🎬 Добавить видео", callback_data="admin:add_video")],
+            [InlineKeyboardButton(text="➕ Добавить видео", callback_data="admin:add_video")],
             [InlineKeyboardButton(text="🗑 Удалить видео", callback_data="admin:delete_video_list_blocks")],
-            [InlineKeyboardButton(text="🧩 Добавить блок", callback_data="admin:add_block")],
+            [InlineKeyboardButton(text="➕ Добавить блок", callback_data="admin:add_block")],
             [InlineKeyboardButton(text="🗑 Удалить блок", callback_data="admin:remove_block_list")],
+            [InlineKeyboardButton(text="📂 Порядок блоков", callback_data="admin:block_order_list")],
             [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users")],
         ]
     )
@@ -400,7 +421,7 @@ def admin_users_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="➕ Добавить пользователя", callback_data="admin:user_add")],
-            [InlineKeyboardButton(text="➖ Удалить пользователя", callback_data="admin:user_remove_list")],
+            [InlineKeyboardButton(text="🗑 Удалить пользователя", callback_data="admin:user_remove_list")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:back")],
         ]
     )
@@ -415,9 +436,33 @@ def admin_blocks_kb(prefix: str) -> InlineKeyboardMarkup:
 def admin_removable_blocks_kb() -> InlineKeyboardMarkup:
     rows: List[List[InlineKeyboardButton]] = []
     for block, title in get_blocks().items():
-        rows.append([InlineKeyboardButton(text=title[:64], callback_data=f"admin:remove_block:{block}")])
+        rows.append([InlineKeyboardButton(text=title[:64], callback_data=f"admin:remove_block_confirm:{block}")])
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_block_order_kb() -> InlineKeyboardMarkup:
+    rows: List[List[InlineKeyboardButton]] = []
+    keys = list(get_blocks().keys())
+    for idx, block in enumerate(keys):
+        title = get_blocks()[block]
+        nav_row: List[InlineKeyboardButton] = [InlineKeyboardButton(text=title[:40], callback_data="noop")]
+        if idx > 0:
+            nav_row.append(InlineKeyboardButton(text="⬆️", callback_data=f"admin:block_move:up:{block}"))
+        if idx < len(keys) - 1:
+            nav_row.append(InlineKeyboardButton(text="⬇️", callback_data=f"admin:block_move:down:{block}"))
+        rows.append(nav_row)
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_block_delete_confirm_kb(block: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Да", callback_data=f"admin:remove_block:{block}")],
+            [InlineKeyboardButton(text="❌ Нет", callback_data="admin:remove_block_list")],
+        ]
+    )
 
 
 def admin_video_item_kb(block: str, item_id: str, index: int, total: int) -> InlineKeyboardMarkup:
@@ -486,7 +531,7 @@ def users_text() -> str:
 
 def user_remove_list_text() -> str:
     users = sorted(get_allowed_users())
-    lines = ["<b>➖ Удаление пользователя</b>", ""]
+    lines = ["<b>🗑 Удаление пользователя</b>", ""]
     for uid in users:
         lines.append(format_user_line(uid))
     return "\n".join(lines)
@@ -620,6 +665,11 @@ async def send_admin_video_preview(call: CallbackQuery, block: str, index: int) 
             await call.message.delete()
 
 
+@dp.callback_query(F.data == "noop")
+async def noop_handler(call: CallbackQuery) -> None:
+    await call.answer()
+
+
 async def send_video(message_or_call: Message | CallbackQuery, block: str, index: int) -> None:
     user_id = message_or_call.from_user.id
     items = DATA["videos"].get(block, [])
@@ -746,7 +796,7 @@ async def admin_receive_block_title(message: Message, state: FSMContext) -> None
 
     await state.clear()
     await message.answer(
-        f"Блок добавлен:\n• <b>{title}</b>\n• key: <code>{block_key}</code>",
+        f"✅ Блок добавлен:\n• <b>{title}</b>\n• key: <code>{block_key}</code>",
         reply_markup=admin_main_kb(),
     )
 
@@ -761,6 +811,51 @@ async def admin_receive_block_title_invalid(message: Message) -> None:
     await message.answer("Нужно отправить текстовое название блока.", reply_markup=cancel_kb())
 
 
+@dp.callback_query(F.data == "admin:block_order_list")
+async def admin_block_order_list(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
+    if not is_admin(call.from_user.id):
+        await call.answer("Нет доступа", show_alert=True)
+        return
+
+    lines = ["<b>📂 Порядок блоков</b>", ""]
+    for idx, (_, title) in enumerate(get_blocks().items(), start=1):
+        lines.append(f"{idx}. {title}")
+
+    await safe_edit_or_send(call, "\n".join(lines), admin_block_order_kb())
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("admin:block_move:"))
+async def admin_block_move(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
+    if not is_admin(call.from_user.id):
+        await call.answer("Нет доступа", show_alert=True)
+        return
+
+    parts = call.data.split(":")
+    if len(parts) != 4:
+        await call.answer("Ошибка перемещения", show_alert=True)
+        return
+
+    _, _, direction, block = parts
+    moved = move_block(block, direction)
+    if not moved:
+        await call.answer("Нельзя переместить", show_alert=True)
+        return
+
+    title = get_blocks().get(block, block)
+    arrow = "вверх" if direction == "up" else "вниз"
+    lines = [f"✅ Блок <b>{title}</b> перемещён {arrow}.", "", "<b>📂 Порядок блоков</b>", ""]
+    for idx, (_, block_title) in enumerate(get_blocks().items(), start=1):
+        lines.append(f"{idx}. {block_title}")
+
+    await safe_edit_or_send(call, "\n".join(lines), admin_block_order_kb())
+    await call.answer("Готово")
+
+
 @dp.callback_query(F.data == "admin:remove_block_list")
 async def admin_remove_block_list(call: CallbackQuery) -> None:
     update_user_profile(call.from_user)
@@ -769,7 +864,7 @@ async def admin_remove_block_list(call: CallbackQuery) -> None:
         await call.answer("Нет доступа", show_alert=True)
         return
 
-    lines = ["<b>Выберите блок для удаления</b>"]
+    lines = ["<b>🗑 Выберите блок для удаления</b>"]
     for block, title in get_blocks().items():
         suffix = " — базовый" if block in DEFAULT_BLOCKS else ""
         count = len(DATA["videos"].get(block, []))
@@ -777,6 +872,29 @@ async def admin_remove_block_list(call: CallbackQuery) -> None:
 
     text = "\n".join(lines)
     await safe_edit_or_send(call, text, admin_removable_blocks_kb())
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("admin:remove_block_confirm:"))
+async def admin_remove_block_confirm(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
+    if not is_admin(call.from_user.id):
+        await call.answer("Нет доступа", show_alert=True)
+        return
+
+    block = call.data.split(":", 2)[2]
+    if block not in get_blocks():
+        await call.answer("Блок не найден", show_alert=True)
+        return
+
+    title = get_blocks()[block]
+    video_count = len(DATA["videos"].get(block, []))
+    text = (
+        f"<b>🗑 Удалить блок {title}?</b>\n"
+        f"Будут удалены все видео внутри: <b>{video_count}</b>."
+    )
+    await safe_edit_or_send(call, text, admin_block_delete_confirm_kb(block))
     await call.answer()
 
 
@@ -813,14 +931,10 @@ async def admin_remove_block(call: CallbackQuery) -> None:
     )
 
     text = (
-        f"Удалён блок <b>{title}</b>.\n"
-        f"Вместе с ним удалено видео: <b>{video_count}</b>.\n\n"
-        f"Оставшиеся блоки:"
+        f"✅ Удалён блок <b>{title}</b>.\n"
+        f"Удалено видео: <b>{video_count}</b>."
     )
-    lines = [text]
-    for key, value in get_blocks().items():
-        lines.append(f"• {value} — {len(DATA['videos'].get(key, []))}")
-    await safe_edit_or_send(call, "\n".join(lines), admin_main_kb())
+    await safe_edit_or_send(call, text, admin_main_kb())
     await call.answer("Блок удалён")
 
 
@@ -832,7 +946,7 @@ async def admin_delete_video_list_blocks(call: CallbackQuery) -> None:
         await call.answer("Нет доступа", show_alert=True)
         return
 
-    lines = ["<b>Выберите блок для удаления видео</b>"]
+    lines = ["<b>🗑 Выберите блок для удаления видео</b>"]
     for block, title in get_blocks().items():
         lines.append(f"• {title} — {len(DATA['videos'].get(block, []))}")
 
@@ -855,7 +969,7 @@ async def admin_delete_video_list(call: CallbackQuery) -> None:
         await call.answer("В этом блоке нет видео", show_alert=True)
         return
 
-    lines = [f"<b>Удаление видео — {get_blocks().get(block, block)}</b>"]
+    lines = [f"<b>🗑 Удаление видео — {get_blocks().get(block, block)}</b>"]
     for idx, item in enumerate(items, start=1):
         lines.append(f"{idx}. {item['title']}")
 
@@ -901,8 +1015,8 @@ async def admin_delete_video_by_number(call: CallbackQuery) -> None:
     )
 
     if items:
-        lines = [f"<b>Удаление видео — {get_blocks().get(block, block)}</b>"]
-        lines.append(f"Удалено: <b>{removed['title']}</b>\n")
+        lines = [f"<b>🗑 Удаление видео — {get_blocks().get(block, block)}</b>"]
+        lines.append(f"✅ Удалено: <b>{removed['title']}</b>\n")
         for idx, item in enumerate(items, start=1):
             lines.append(f"{idx}. {item['title']}")
 
@@ -914,7 +1028,7 @@ async def admin_delete_video_by_number(call: CallbackQuery) -> None:
     else:
         await safe_edit_or_send(
             call,
-            f"Из блока <b>{get_blocks().get(block, block)}</b> удалено последнее видео.",
+            f"✅ Из блока <b>{get_blocks().get(block, block)}</b> удалено последнее видео.",
             admin_delete_video_blocks_kb(),
         )
 
@@ -1006,7 +1120,7 @@ async def admin_remove_user(call: CallbackQuery) -> None:
 
     logger.info("Admin %s removed user %s", call.from_user.id, remove_id)
 
-    text = f"Пользователь <code>{remove_id}</code> удалён.\n\n" + user_remove_list_text()
+    text = f"✅ Пользователь <code>{remove_id}</code> удалён.\n\n" + user_remove_list_text()
     await safe_edit_or_send(call, text, user_remove_list_kb())
     await call.answer("Пользователь удалён")
 
@@ -1019,7 +1133,7 @@ async def admin_list_blocks(call: CallbackQuery) -> None:
         await call.answer("Нет доступа", show_alert=True)
         return
 
-    lines = ["<b>Блоки с видео</b>"]
+    lines = ["<b>📂 Блоки с видео</b>"]
     for block, title in get_blocks().items():
         lines.append(f"• {title} — {len(DATA['videos'].get(block, []))}")
 
@@ -1106,7 +1220,7 @@ async def admin_delete_video(call: CallbackQuery) -> None:
         if call.message:
             await call.message.delete()
 
-    await bot.send_message(call.from_user.id, f"Удалено: <b>{removed['title']}</b>")
+    await bot.send_message(call.from_user.id, f"✅ Удалено: <b>{removed['title']}</b>")
 
     if items:
         next_index = min(index, len(items) - 1)
@@ -1160,7 +1274,7 @@ async def admin_save_video(call: CallbackQuery, state: FSMContext) -> None:
     )
 
     await state.clear()
-    text = f"Сохранено в блок <b>{get_blocks()[block]}</b>:\n• {title}"
+    text = f"✅ Сохранено в блок <b>{get_blocks()[block]}</b>:\n• {title}"
     await safe_edit_or_send(call, text, admin_main_kb())
     await call.answer("Видео сохранено")
 
