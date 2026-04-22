@@ -461,15 +461,36 @@ async def admin_delete_video(call: CallbackQuery) -> None:
         return
 
     try:
-        _, _, _, block, item_id = call.data.split(":", 4)
-        items = DATA["videos"].get(block, [])
-        remove_index = next((i for i, item in enumerate(items) if item.get("id") == item_id), -1)
-
-        if remove_index == -1:
-            await call.answer("Видео не найдено", show_alert=True)
+        parts = call.data.split(":")
+        # Поддержка обоих форматов callback_data:
+        # 1) admin:delete_video:block:item_id
+        # 2) admin:delete_video:block:index:item_id
+        if len(parts) == 4:
+            _, _, block, item_id = parts
+            remove_index = None
+        elif len(parts) == 5:
+            _, _, block, maybe_index, item_id = parts
+            remove_index = int(maybe_index) if maybe_index.isdigit() else None
+        else:
+            await call.answer("Некорректные данные кнопки удаления", show_alert=True)
             return
 
-        removed = items.pop(remove_index)
+        items = DATA["videos"].get(block, [])
+        removed = None
+
+        if remove_index is not None and 0 <= remove_index < len(items):
+            item = items[remove_index]
+            if str(item.get("id")) == item_id:
+                removed = items.pop(remove_index)
+
+        if removed is None:
+            real_index = next((i for i, item in enumerate(items) if str(item.get("id")) == item_id), -1)
+            if real_index == -1:
+                await call.answer("Видео не найдено", show_alert=True)
+                return
+            remove_index = real_index
+            removed = items.pop(real_index)
+
         save_data(DATA)
 
         try:
