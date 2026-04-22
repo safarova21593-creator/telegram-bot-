@@ -50,6 +50,9 @@ MAX_VIDEO_TITLE_LENGTH = 120
 MAX_BLOCK_TITLE_LENGTH = 80
 CALLBACK_COOLDOWN_SECONDS = 0.8
 
+START_DELAY_SECONDS = 1.8
+TRANSITION_DELAY_SECONDS = 1.6
+
 
 class VideoItem(TypedDict):
     id: str
@@ -352,9 +355,9 @@ def format_user_line(uid: int) -> str:
     first_name = str(profile.get("first_name", "")).strip()
     last_name = str(profile.get("last_name", "")).strip()
 
-    role = " — админ" if is_admin(uid) else ""
+    icon = "👑" if is_admin(uid) else "👤"
+    parts = [f"{icon} <code>{uid}</code>"]
 
-    parts = [f"• <code>{uid}</code>"]
     if username:
         parts.append(f"@{username}")
 
@@ -362,7 +365,10 @@ def format_user_line(uid: int) -> str:
     if full_name:
         parts.append(full_name)
 
-    return " — ".join(parts) + role
+    if is_admin(uid):
+        parts.append("админ")
+
+    return " — ".join(parts)
 
 
 def main_kb() -> ReplyKeyboardMarkup:
@@ -382,11 +388,10 @@ def admin_main_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🎬 Добавить видео", callback_data="admin:add_video")],
+            [InlineKeyboardButton(text="🗑 Удалить видео", callback_data="admin:delete_video_list_blocks")],
             [InlineKeyboardButton(text="🧩 Добавить блок", callback_data="admin:add_block")],
             [InlineKeyboardButton(text="🗑 Удалить блок", callback_data="admin:remove_block_list")],
-            [InlineKeyboardButton(text="🗑 Удалить видео списком", callback_data="admin:delete_video_list_blocks")],
             [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users")],
-            [InlineKeyboardButton(text="📂 Видео по блокам", callback_data="admin:list_blocks")],
         ]
     )
 
@@ -395,7 +400,7 @@ def admin_users_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="➕ Добавить пользователя", callback_data="admin:user_add")],
-            [InlineKeyboardButton(text="🗑 Удалить пользователя", callback_data="admin:user_remove_list")],
+            [InlineKeyboardButton(text="➖ Удалить пользователя", callback_data="admin:user_remove_list")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:back")],
         ]
     )
@@ -466,7 +471,14 @@ def admin_delete_video_list_kb(block: str, items: List[VideoItem]) -> InlineKeyb
 
 def users_text() -> str:
     users = sorted(get_allowed_users())
-    lines = ["<b>Список пользователей с доступом</b>"]
+    admins_count = len(get_admins())
+    members_count = len([uid for uid in users if not is_admin(uid)])
+
+    lines = [
+        "<b>👥 Пользователи</b>",
+        f"Всего: <b>{len(users)}</b> • Админов: <b>{admins_count}</b> • Пользователей: <b>{members_count}</b>",
+        "",
+    ]
     for uid in users:
         lines.append(format_user_line(uid))
     return "\n".join(lines)
@@ -474,7 +486,7 @@ def users_text() -> str:
 
 def user_remove_list_text() -> str:
     users = sorted(get_allowed_users())
-    lines = ["<b>Выберите пользователя для удаления</b>"]
+    lines = ["<b>➖ Удаление пользователя</b>", ""]
     for uid in users:
         lines.append(format_user_line(uid))
     return "\n".join(lines)
@@ -485,11 +497,11 @@ def user_remove_list_kb() -> InlineKeyboardMarkup:
     for uid in sorted(get_allowed_users()):
         if is_admin(uid):
             continue
-        label = str(uid)
+        label = f"🗑 {uid}"
         profile = DATA.get("profiles", {}).get(str(uid), {})
         username = str(profile.get("username", "")).strip()
         if username:
-            label = f"{uid} | @{username}"
+            label = f"🗑 @{username}"
         rows.append([InlineKeyboardButton(text=label[:64], callback_data=f"admin:remove_user:{uid}")])
 
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:users")])
@@ -553,17 +565,7 @@ async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup: Inline
 
 
 async def show_admin_panel(target: Message | CallbackQuery) -> None:
-    text = (
-        "<b>Админ-панель</b>\n\n"
-        "Здесь можно:\n"
-        "• добавлять видео\n"
-        "• добавлять блоки\n"
-        "• удалять блоки\n"
-        "• удалять видео списком\n"
-        "• добавлять пользователей\n"
-        "• удалять пользователей по кнопке\n"
-        "• просматривать и удалять видео из блоков"
-    )
+    text = "<b>Админ-панель</b>\nУправление видео, блоками и доступом."
 
     if isinstance(target, Message):
         await target.answer(text, reply_markup=admin_main_kb())
@@ -582,7 +584,7 @@ async def maybe_send_animation(chat_id: int, file_id: str, caption: str | None =
         return False
 
 
-async def send_transition_text(chat_id: int, text: str, delay: float = 0.7) -> None:
+async def send_transition_text(chat_id: int, text: str, delay: float = TRANSITION_DELAY_SECONDS) -> None:
     msg = await bot.send_message(chat_id, text)
     await asyncio.sleep(delay)
     with contextlib.suppress(Exception):
@@ -655,7 +657,7 @@ async def start_handler(message: Message) -> None:
         return
 
     await message.answer(f"Приветствую, {message.from_user.first_name}! ✨")
-    await send_transition_text(message.from_user.id, "Подготавливаю тренировку…")
+    await send_transition_text(message.from_user.id, "Подготавливаю тренировку…", delay=START_DELAY_SECONDS)
     await maybe_send_animation(message.from_user.id, START_ANIMATION_FILE_ID, "Готово к тренировке 🎤")
     await message.answer("Выбери блок:", reply_markup=main_kb())
 
@@ -830,7 +832,7 @@ async def admin_delete_video_list_blocks(call: CallbackQuery) -> None:
         await call.answer("Нет доступа", show_alert=True)
         return
 
-    lines = ["<b>Выберите блок для удаления видео списком</b>"]
+    lines = ["<b>Выберите блок для удаления видео</b>"]
     for block, title in get_blocks().items():
         lines.append(f"• {title} — {len(DATA['videos'].get(block, []))}")
 
@@ -1246,7 +1248,7 @@ async def admin_receive_user_id(message: Message, state: FSMContext) -> None:
 
     await state.clear()
     await message.answer(
-        f"Пользователь <code>{new_user_id}</code> добавлен.\n\n" + users_text(),
+        f"✅ Пользователь <code>{new_user_id}</code> добавлен.\n\n" + users_text(),
         reply_markup=admin_users_kb(),
     )
 
@@ -1274,7 +1276,7 @@ async def text_router(message: Message, state: FSMContext) -> None:
             return
 
         await state.clear()
-        await send_transition_text(user_id, f"Открываю блок {text} ✨")
+        await send_transition_text(user_id, f"Открываю блок {text} ✨", delay=TRANSITION_DELAY_SECONDS)
         await send_video(message, aliases[text], 0)
         return
 
@@ -1310,7 +1312,7 @@ async def next_step(call: CallbackQuery) -> None:
             await call.message.edit_reply_markup(reply_markup=None)
 
     if next_idx < len(items):
-        await send_transition_text(call.from_user.id, "Следующее упражнение…")
+        await send_transition_text(call.from_user.id, "Следующее упражнение…", delay=TRANSITION_DELAY_SECONDS)
         await send_video(call, block, next_idx)
     else:
         await maybe_send_animation(call.from_user.id, BLOCK_TRANSITION_ANIMATION_FILE_ID, "Блок завершён ✨")
