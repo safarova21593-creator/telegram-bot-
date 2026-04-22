@@ -22,6 +22,7 @@ from aiogram.types import (
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
+    User,
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -48,6 +49,12 @@ class VideoItem(TypedDict):
     id: str
     title: str
     video: str
+
+
+class ProfileItem(TypedDict):
+    username: str
+    first_name: str
+    last_name: str
 
 
 class AdminVideoFSM(StatesGroup):
@@ -79,7 +86,6 @@ BLOCK_FINISH_MESSAGES = {
     ),
 }
 
-# user_id -> last callback ts
 user_callback_ts: Dict[int, float] = {}
 
 
@@ -87,6 +93,7 @@ def default_data() -> Dict[str, Any]:
     return {
         "admins": [DEFAULT_ADMIN_ID],
         "allowed_users": [DEFAULT_ADMIN_ID],
+        "profiles": {},
         "videos": {
             "warmup": [
                 {"title": "Трель", "video": "BAACAgIAAxkBAAICvmmHnO8V9I3oytM_0IiWhjMTdJp-AAJ6qAACd5hBSKlSxJmdQJHBOgQ"},
@@ -155,6 +162,24 @@ def normalize_id_list(values: Any, fallback: List[int]) -> List[int]:
     return result or fallback[:]
 
 
+def normalize_profiles(raw_profiles: Any) -> Dict[str, ProfileItem]:
+    if not isinstance(raw_profiles, dict):
+        return {}
+
+    profiles: Dict[str, ProfileItem] = {}
+    for user_id, profile in raw_profiles.items():
+        if not str(user_id).isdigit() or not isinstance(profile, dict):
+            continue
+
+        profiles[str(user_id)] = {
+            "username": str(profile.get("username", "")).strip(),
+            "first_name": str(profile.get("first_name", "")).strip(),
+            "last_name": str(profile.get("last_name", "")).strip(),
+        }
+
+    return profiles
+
+
 def normalize_videos(raw_videos: Any) -> Dict[str, List[VideoItem]]:
     videos: Dict[str, List[VideoItem]] = {}
 
@@ -197,16 +222,17 @@ def ensure_data_shape(data: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(data, dict):
         data = default_data()
 
-    # Миграция со старого формата: если admins отсутствует, берем первого allowed_users
     old_allowed = normalize_id_list(data.get("allowed_users"), [DEFAULT_ADMIN_ID])
     admins = normalize_id_list(data.get("admins"), [old_allowed[0] if old_allowed else DEFAULT_ADMIN_ID])
 
     allowed_users = sorted(set(old_allowed + admins))
+    profiles = normalize_profiles(data.get("profiles"))
     videos = normalize_videos(data.get("videos"))
 
     normalized = {
         "admins": admins,
         "allowed_users": allowed_users,
+        "profiles": profiles,
         "videos": videos,
     }
     return normalized
@@ -252,6 +278,35 @@ def has_access(user_id: int) -> bool:
 def user_name(message_or_call: Message | CallbackQuery) -> str:
     first_name = message_or_call.from_user.first_name or "Пользователь"
     return first_name.strip()
+
+
+def update_user_profile(user: User) -> None:
+    profiles = DATA.setdefault("profiles", {})
+    profiles[str(user.id)] = {
+        "username": (user.username or "").strip(),
+        "first_name": (user.first_name or "").strip(),
+        "last_name": (user.last_name or "").strip(),
+    }
+    save_data(DATA)
+
+
+def format_user_line(uid: int) -> str:
+    profile = DATA.get("profiles", {}).get(str(uid), {})
+    username = str(profile.get("username", "")).strip()
+    first_name = str(profile.get("first_name", "")).strip()
+    last_name = str(profile.get("last_name", "")).strip()
+
+    role = " — админ" if is_admin(uid) else ""
+
+    parts = [f"• <code>{uid}</code>"]
+    if username:
+        parts.append(f"@{username}")
+
+    full_name = " ".join(x for x in [first_name, last_name] if x).strip()
+    if full_name:
+        parts.append(full_name)
+
+    return " — ".join(parts) + role
 
 
 def main_kb() -> ReplyKeyboardMarkup:
@@ -311,21 +366,17 @@ def admin_video_item_kb(block: str, item_id: str, index: int, total: int) -> Inl
 
 def users_text() -> str:
     users = sorted(get_allowed_users())
-    admins = get_admins()
     lines = ["<b>Список пользователей с доступом</b>"]
     for uid in users:
-        role = " — админ" if uid in admins else ""
-        lines.append(f"• <code>{uid}</code>{role}")
+        lines.append(format_user_line(uid))
     return "\n".join(lines)
 
 
 def user_remove_list_text() -> str:
     users = sorted(get_allowed_users())
-    admins = get_admins()
     lines = ["<b>Выберите пользователя для удаления</b>"]
     for uid in users:
-        role = " — админ" if uid in admins else ""
-        lines.append(f"• <code>{uid}</code>{role}")
+        lines.append(format_user_line(uid))
     return "\n".join(lines)
 
 
@@ -334,7 +385,12 @@ def user_remove_list_kb() -> InlineKeyboardMarkup:
     for uid in sorted(get_allowed_users()):
         if is_admin(uid):
             continue
-        rows.append([InlineKeyboardButton(text=str(uid), callback_data=f"admin:remove_user:{uid}")])
+        label = str(uid)
+        profile = DATA.get("profiles", {}).get(str(uid), {})
+        username = str(profile.get("username", "")).strip()
+        if username:
+            label = f"{uid} | @{username}"
+        rows.append([InlineKeyboardButton(text=label[:64], callback_data=f"admin:remove_user:{uid}")])
 
     rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:users")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -467,6 +523,8 @@ async def send_video(message_or_call: Message | CallbackQuery, block: str, index
 
 @dp.message(CommandStart())
 async def start_handler(message: Message) -> None:
+    update_user_profile(message.from_user)
+
     if not has_access(message.from_user.id):
         await message.answer("Доступ к боту ограничен. Обратитесь к администратору: @juliavoice_coach.")
         return
@@ -478,6 +536,8 @@ async def start_handler(message: Message) -> None:
 
 @dp.message(Command("admin"))
 async def admin_handler(message: Message, state: FSMContext) -> None:
+    update_user_profile(message.from_user)
+
     if not is_admin(message.from_user.id):
         await message.answer("У вас нет доступа к админ-панели.")
         return
@@ -488,6 +548,8 @@ async def admin_handler(message: Message, state: FSMContext) -> None:
 
 @dp.callback_query(F.data == "admin:back")
 async def admin_back(call: CallbackQuery, state: FSMContext) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -499,6 +561,7 @@ async def admin_back(call: CallbackQuery, state: FSMContext) -> None:
 
 @dp.callback_query(F.data == "admin:cancel")
 async def admin_cancel(call: CallbackQuery, state: FSMContext) -> None:
+    update_user_profile(call.from_user)
     await state.clear()
     await safe_edit_or_send(call, "Действие отменено.", admin_main_kb())
     await call.answer("Отменено")
@@ -506,6 +569,8 @@ async def admin_cancel(call: CallbackQuery, state: FSMContext) -> None:
 
 @dp.callback_query(F.data == "admin:add_video")
 async def admin_add_video(call: CallbackQuery, state: FSMContext) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -518,6 +583,8 @@ async def admin_add_video(call: CallbackQuery, state: FSMContext) -> None:
 
 @dp.callback_query(F.data == "admin:users")
 async def admin_users(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -528,6 +595,8 @@ async def admin_users(call: CallbackQuery) -> None:
 
 @dp.callback_query(F.data == "admin:user_add")
 async def admin_user_add(call: CallbackQuery, state: FSMContext) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -541,6 +610,8 @@ async def admin_user_add(call: CallbackQuery, state: FSMContext) -> None:
 
 @dp.callback_query(F.data == "admin:user_remove_list")
 async def admin_user_remove_list(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -556,6 +627,8 @@ async def admin_user_remove_list(call: CallbackQuery) -> None:
 
 @dp.callback_query(F.data.startswith("admin:remove_user:"))
 async def admin_remove_user(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -586,6 +659,8 @@ async def admin_remove_user(call: CallbackQuery) -> None:
 
 @dp.callback_query(F.data == "admin:list_blocks")
 async def admin_list_blocks(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -601,6 +676,8 @@ async def admin_list_blocks(call: CallbackQuery) -> None:
 
 @dp.callback_query(F.data.startswith("admin:block:"))
 async def admin_open_block(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -618,6 +695,8 @@ async def admin_open_block(call: CallbackQuery) -> None:
 
 @dp.callback_query(F.data.startswith("admin:view:"))
 async def admin_view_video(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -638,6 +717,8 @@ async def admin_view_video(call: CallbackQuery) -> None:
 
 @dp.callback_query(F.data.startswith("admin:delete_video:"))
 async def admin_delete_video(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -688,6 +769,8 @@ async def admin_delete_video(call: CallbackQuery) -> None:
 
 @dp.callback_query(AdminVideoFSM.wait_block, F.data.startswith("admin:save_video:"))
 async def admin_save_video(call: CallbackQuery, state: FSMContext) -> None:
+    update_user_profile(call.from_user)
+
     if not is_admin(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
@@ -730,6 +813,8 @@ async def admin_save_video(call: CallbackQuery, state: FSMContext) -> None:
 
 @dp.message(AdminVideoFSM.wait_video, F.video)
 async def admin_receive_video(message: Message, state: FSMContext) -> None:
+    update_user_profile(message.from_user)
+
     if not is_admin(message.from_user.id):
         return
 
@@ -740,6 +825,8 @@ async def admin_receive_video(message: Message, state: FSMContext) -> None:
 
 @dp.message(AdminVideoFSM.wait_video)
 async def admin_receive_video_invalid(message: Message) -> None:
+    update_user_profile(message.from_user)
+
     if not is_admin(message.from_user.id):
         return
     await message.answer("Нужно отправить именно видео.", reply_markup=cancel_kb())
@@ -747,6 +834,8 @@ async def admin_receive_video_invalid(message: Message) -> None:
 
 @dp.message(AdminVideoFSM.wait_title, F.text)
 async def admin_receive_title(message: Message, state: FSMContext) -> None:
+    update_user_profile(message.from_user)
+
     if not is_admin(message.from_user.id):
         return
 
@@ -770,6 +859,8 @@ async def admin_receive_title(message: Message, state: FSMContext) -> None:
 
 @dp.message(AdminVideoFSM.wait_title)
 async def admin_receive_title_invalid(message: Message) -> None:
+    update_user_profile(message.from_user)
+
     if not is_admin(message.from_user.id):
         return
     await message.answer("Нужно отправить текстовое название видео.", reply_markup=cancel_kb())
@@ -777,6 +868,8 @@ async def admin_receive_title_invalid(message: Message) -> None:
 
 @dp.message(AdminUserFSM.wait_user_id, F.text)
 async def admin_receive_user_id(message: Message, state: FSMContext) -> None:
+    update_user_profile(message.from_user)
+
     if not is_admin(message.from_user.id):
         return
 
@@ -809,6 +902,8 @@ async def admin_receive_user_id(message: Message, state: FSMContext) -> None:
 
 @dp.message(AdminUserFSM.wait_user_id)
 async def admin_receive_user_id_invalid(message: Message) -> None:
+    update_user_profile(message.from_user)
+
     if not is_admin(message.from_user.id):
         return
     await message.answer("Нужно отправить только числовой Telegram ID.", reply_markup=cancel_kb())
@@ -816,6 +911,8 @@ async def admin_receive_user_id_invalid(message: Message) -> None:
 
 @dp.message(F.text)
 async def text_router(message: Message, state: FSMContext) -> None:
+    update_user_profile(message.from_user)
+
     user_id = message.from_user.id
     text = (message.text or "").strip()
 
@@ -831,6 +928,8 @@ async def text_router(message: Message, state: FSMContext) -> None:
 
 @dp.callback_query(F.data.startswith("next:"))
 async def next_step(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
     if not has_access(call.from_user.id):
         await call.answer("Нет доступа", show_alert=True)
         return
