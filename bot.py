@@ -17,7 +17,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # -------------------- ДОСТУП --------------------
 
-ALLOWED_USERS = {470343161, 1363068163, 787557638, 518077592}
+ALLOWED_USERS = {1363068163, 787557638, 518077592}
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
