@@ -875,12 +875,13 @@ async def admin_delete_video_by_number(call: CallbackQuery) -> None:
         await call.answer("Нет доступа", show_alert=True)
         return
 
-    parts = call.data.split(":")
-    if len(parts) != 5:
+    payload = call.data.removeprefix("admin:delete_video_by_number:")
+    try:
+        block, item_id = payload.split(":", 1)
+    except ValueError:
         await call.answer("Ошибка удаления", show_alert=True)
         return
 
-    _, _, _, block, item_id = parts
     items = DATA["videos"].get(block, [])
     index = find_video_index_by_id(block, item_id)
 
