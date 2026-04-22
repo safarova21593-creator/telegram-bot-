@@ -39,6 +39,7 @@ def save(file, data):
 
 data = load(DATA_FILE, {"users": []})
 state = load(STATE_FILE, {})
+admin_state = {}
 
 
 def save_all():
@@ -52,7 +53,7 @@ def allowed(uid: int):
     return uid == ADMIN_ID or uid in data["users"]
 
 
-# -------------------- KEYBOARD --------------------
+# -------------------- MAIN MENU --------------------
 
 menu = ReplyKeyboardMarkup(
     keyboard=[
@@ -65,7 +66,19 @@ menu = ReplyKeyboardMarkup(
 )
 
 
-# -------------------- COURSE DATA --------------------
+# -------------------- ADMIN MENU --------------------
+
+admin_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="➕ Добавить пользователя")],
+        [KeyboardButton(text="➖ Удалить пользователя")],
+        [KeyboardButton(text="🔙 Выйти")]
+    ],
+    resize_keyboard=True
+)
+
+
+# -------------------- COURSES --------------------
 
 COURSES = {
     "1": {
@@ -116,7 +129,7 @@ COURSES = {
 }
 
 
-# -------------------- PROGRESS --------------------
+# -------------------- UTIL --------------------
 
 def bar(i, total):
     return "🟩" * (i + 1) + "⬜" * (total - (i + 1)) + f" {i+1}/{total}"
@@ -142,7 +155,7 @@ async def start(m: Message):
     await m.answer("Выбери блок:", reply_markup=menu)
 
 
-# -------------------- MENU --------------------
+# -------------------- COURSE START --------------------
 
 async def start_course(m: Message, cid: str):
     state[str(m.from_user.id)] = {"c": cid, "i": 0}
@@ -167,7 +180,6 @@ async def c4(m): await start_course(m, "4")
 
 async def send_video(m: Message, uid: int):
     uid = str(uid)
-
     if uid not in state:
         return
 
@@ -177,11 +189,9 @@ async def send_video(m: Message, uid: int):
 
     title, vid = course["videos"][i]
 
-    text = f"<b>{title}</b>\n\n{bar(i, len(course['videos']))}"
-
     await m.answer_video(
         vid,
-        caption=text,
+        caption=f"<b>{title}</b>\n\n{bar(i, len(course['videos']))}",
         parse_mode="HTML",
         reply_markup=kb(i == len(course["videos"]) - 1)
     )
@@ -190,7 +200,6 @@ async def send_video(m: Message, uid: int):
 @dp.callback_query(F.data == "next")
 async def nxt(c: CallbackQuery):
     uid = str(c.from_user.id)
-
     if uid not in state:
         return
 
@@ -207,32 +216,70 @@ async def nxt(c: CallbackQuery):
     await send_video(c.message, int(uid))
 
 
-# -------------------- ADMIN --------------------
+# -------------------- ADMIN PANEL --------------------
 
-@dp.message(Command("add_user"))
-async def add(m: Message):
+@dp.message(Command("admin"))
+async def admin(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
 
-    uid = int(m.text.split()[1])
-    if uid not in data["users"]:
-        data["users"].append(uid)
-        save_all()
-
-    await m.answer("OK")
+    admin_state[m.from_user.id] = None
+    await m.answer("Админ-панель:", reply_markup=admin_kb)
 
 
-@dp.message(Command("remove_user"))
-async def rem(m: Message):
+@dp.message(F.text == "➕ Добавить пользователя")
+async def add_mode(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
 
-    uid = int(m.text.split()[1])
-    if uid in data["users"]:
-        data["users"].remove(uid)
-        save_all()
+    admin_state[m.from_user.id] = "add"
+    await m.answer("Отправь ID пользователя")
 
-    await m.answer("OK")
+
+@dp.message(F.text == "➖ Удалить пользователя")
+async def rem_mode(m: Message):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    admin_state[m.from_user.id] = "remove"
+    await m.answer("Отправь ID пользователя")
+
+
+@dp.message(F.text == "🔙 Выйти")
+async def exit_admin(m: Message):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    admin_state[m.from_user.id] = None
+    await m.answer("Выход", reply_markup=menu)
+
+
+@dp.message()
+async def admin_input(m: Message):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    mode = admin_state.get(m.from_user.id)
+    if not mode:
+        return
+
+    try:
+        uid = int(m.text)
+    except:
+        return await m.answer("Неверный ID")
+
+    if mode == "add":
+        if uid not in data["users"]:
+            data["users"].append(uid)
+
+    if mode == "remove":
+        if uid in data["users"]:
+            data["users"].remove(uid)
+
+    save_all()
+    admin_state[m.from_user.id] = None
+
+    await m.answer("Готово")
 
 
 # -------------------- RUN --------------------
