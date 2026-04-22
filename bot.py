@@ -1,342 +1,236 @@
-import asyncio
-import json
 import os
-
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import (
-    Message,
-    CallbackQuery,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
-)
+import json
+import asyncio
+from aiogram import Bot, Dispatcher, Router, F
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart, Command
+from aiogram.enums import ParseMode
 
-TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 470343161
 
-bot = Bot(token=TOKEN)
+bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
+router = Router()
+dp.include_router(router)
 
 DATA_FILE = "data.json"
-STATE_FILE = "state.json"
 
+# ------------------ DATA ------------------
 
-# -------------------- STORAGE --------------------
-
-def load(file, default):
-    if not os.path.exists(file):
-        return default
-    with open(file, "r", encoding="utf-8") as f:
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        return {"users": [], "modules": {}}
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-
-def save(file, data):
-    with open(file, "w", encoding="utf-8") as f:
+def save_data(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+data = load_data()
 
-data = load(DATA_FILE, {
-    "users": [],
-    "courses": {
-        "1": [],
-        "2": [],
-        "3": [],
-        "4": []
+# ------------------ MODULES ------------------
+
+MODULES = {
+    "warmup": {
+        "name": "РАЗОГРЕВ",
+        "finish_text": "{name}, переходи к следующему блоку➡️",
+        "videos": [
+            ("Трель", "BAACAgIAAxkBAAICvmmHnO8V9I3oytM_0IiWhjMTdJp-AAJ6qAACd5hBSKlSxJmdQJHBOgQ"),
+            ("Сирена", "BAACAgIAAxkBAAIDIGmI_kAdS8HC05EHgVyGq9jQVaQoAAJQhQACV81JSEiL0QG73KRUOgQ"),
+            ("Режимы работы голосовых складок", "BAACAgIAAxkBAAIFbWng_qo7u6OwFP5K_h-GczbCQcC8AAKAnQACU0kIS8ZNCKOp2pSzOwQ"),
+            ("Мягкое небо", "BAACAgIAAxkBAAIHNGnhXL3xHKjyivh9gSnrA0Jse3GzAALdkwACU0kQS34mCZVfDDTvOwQ"),
+            ("NG", "BAACAgIAAxkBAAIDH2mI-58aJh8VzvCnxpHtu9hxj0QhAAI5hQACV81JSDK87Yy0XYZdOgQ"),
+            ("ng A ng Э", "BAACAgIAAxkBAAIEymneqa_G3NtmM8dMxpPONroNQ5U7AAK4lAACYBLxSuqWnm-uZl18OwQ"),
+        ]
+    },
+
+    "sounds": {
+        "name": "РАБОЧИЕ ЗВУКИ",
+        "finish_text": "{name}, двигайся к следующему блоку➡️",
+        "videos": [
+            ("Основные рабочие звуки А-И-У", "BAACAgIAAxkBAAIFumnhHaYAAbSLYje2d_N4qXiqopvf-AACE5IAAlNJEEsYt2qZlJZTgDsE"),
+            ("Звонкие качества", "BAACAgIAAxkBAAII92nhfu2ymq0kDxyoMFZzMzE289HsAAISlAACU0kQS5YS6-tgJdcyOwQ"),
+            ("ГА ГА ГА, НА НА НА", "BAACAgIAAxkBAAIFxGnhJjXXG37cJfTWg273_KUveChxAAJtkgACU0kQSzn02yOQpEhqOwQ"),
+            ("НИ НЭ НА НО НУ", "BAACAgIAAxkBAAIF2WnhM-7P38m-B0bGRnTgXnjwaCCKAAISkwACU0kQS3g6-k1iAQt0OwQ"),
+            ("Папайя", "BAACAgIAAxkBAAIF8GnhOty0hfema_C2945TJ3kRNfgQAAJYkwACU0kQSwcyvjHbyS5OOwQ"),
+            ("Пицца", "BAACAgIAAxkBAAIGAAFp4T5pkmCPmMpA_K3_sWJ10OnAaQACcZMAAlNJEEtKFEH1OPL8EjsE"),
+            ("Не мни мне мини", "BAACAgIAAxkBAAIGC2nhQso05PaTOuxMqgbfmUWKu4vxAAKDkwACU0kQS-5qfczcBdYHOwQ"),
+        ]
+    },
+
+    "belting": {
+        "name": "НАРОДНЫЙ/БЭЛТИНГ",
+        "finish_text": "Пришло время реализовать полученные навыки на практике, переходи к блоку \"Вокальные упражнения\"🎤",
+        "videos": [
+            ("Народный звук (Бэлтинг), объяснение", "BAACAgIAAxkBAAIGMWnhRgSBfkkdzEi3cD4n4yJtEXDgAAKMkwACU0kQS3E571ltEh5sOwQ"),
+            ("Народный Э", "BAACAgIAAxkBAAIGUmnhSHqm0EHi9zr-xIMSYOGxVI-9AAKRkwACU0kQSzHyfk-FkhYYOwQ"),
+            ("Народный О", "BAACAgIAAxkBAAIGWGnhUD31UYfwrNP7fGRatPn43RISAAKikwACU0kQS6RupTxsjvjcOwQ"),
+            ("Стабильность народного звука", "BAACAgIAAxkBAAIGXGnhUIQJ0wHK3IzB1cALXp_wzQl_AAKlkwACU0kQS-5wZs_ul8x1OwQ"),
+        ]
+    },
+
+    "exercises": {
+        "name": "ВОКАЛЬНЫЕ УПРАЖНЕНИЯ",
+        "finish_text": "{name}, поздравляю с завершением тренировки!\n\nДля закрепления стойкого результата делайте эти практики регулярно.\n\n<b>С заботой о Вас, Юлия Золотых❤️</b>",
+        "videos": [
+            ("Я не боюсь темноты", "BAACAgIAAxkBAAIGemnhUiaMGOab8Ngh5ki6b1aQHwJMAAKvkwACU0kQS_mkx39_mJTAOwQ"),
+            ("Доброе утро", "BAACAgIAAxkBAAIGfmnhUrpdHCBV1an_Ka86Zz8EVBUHAAKxkwACU0kQS0U45H9dPJY4OwQ"),
+            ("За волной волна", "BAACAgIAAxkBAAIGgmnhUx6A5owEQmTRrxoQlaKWCLCEAAKykwACU0kQS8vGmN3mpHqgOwQ"),
+            ("Фифа", "BAACAgIAAxkBAAIGhmnhVGbMXxnIkK_POOn1yfzDxWmdAAK_kwACU0kQSwMyG1UvEm1vOwQ"),
+            ("Как легко", "BAACAgIAAxkBAAIGimnhVOfQLrZYuaOwukhZ9LktdCFzAALDkwACU0kQS8d1HWfJFB1mOwQ"),
+        ]
     }
-})
+}
 
-state = load(STATE_FILE, {})
-admin_state = {}
-pending_video = {}
+# ------------------ UI ------------------
 
-
-def save_all():
-    save(DATA_FILE, data)
-    save(STATE_FILE, state)
-
-
-# -------------------- ACCESS --------------------
-
-def allowed(uid: int):
-    return uid == ADMIN_ID or uid in data["users"]
-
-
-# -------------------- KEYBOARDS --------------------
-
-menu = ReplyKeyboardMarkup(
+menu_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="1️⃣Разогрев")],
-        [KeyboardButton(text="2️⃣Рабочие звуки/звонкие качества")],
-        [KeyboardButton(text="3️⃣Народный/Бэлтинг")],
-        [KeyboardButton(text="4️⃣Вокальные упражнения")]
+        [KeyboardButton(text="1️⃣ Разогрев")],
+        [KeyboardButton(text="2️⃣ Рабочие звуки/звонкие качества")],
+        [KeyboardButton(text="3️⃣ Народный/Бэлтинг")],
+        [KeyboardButton(text="4️⃣ Вокальные упражнения")]
     ],
     resize_keyboard=True
 )
 
+def progress_bar(current, total):
+    filled = "🟩" * current
+    empty = "⬜" * (total - current)
+    return f"{filled}{empty} {current}/{total}"
 
-admin_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="➕ Добавить пользователя")],
-        [KeyboardButton(text="➖ Удалить пользователя")],
-        [KeyboardButton(text="🎥 Добавить видео")],
-        [KeyboardButton(text="🔙 Выйти")]
-    ],
-    resize_keyboard=True
-)
+def inline_kb(module, index):
+    total = len(MODULES[module]["videos"])
+    buttons = []
 
+    if index < total - 1:
+        buttons.append([InlineKeyboardButton(text="Дальше", callback_data=f"next:{module}:{index+1}")])
+    else:
+        buttons.append([InlineKeyboardButton(text="Завершить", callback_data=f"finish:{module}")])
 
-# -------------------- UTIL --------------------
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def bar(i, total):
-    return "🟩" * (i + 1) + "⬜" * (total - (i + 1)) + f" {i+1}/{total}"
+# ------------------ ACCESS ------------------
 
+def is_allowed(user_id: int):
+    return user_id == ADMIN_ID or user_id in data["users"]
 
-def kb(last: bool):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Завершить" if last else "Дальше", callback_data="next")]
-    ])
+# ------------------ START ------------------
 
+@router.message(CommandStart())
+async def start(message: Message):
+    if not is_allowed(message.from_user.id):
+        return await message.answer("Доступ ограничен.")
 
-def get_course(cid):
-    return data["courses"][cid]
-
-
-# -------------------- START --------------------
-
-@dp.message(CommandStart())
-async def start(m: Message):
-    if not allowed(m.from_user.id):
-        return await m.answer("Доступ ограничен")
-
-    await m.answer(f"Приветствую тебя, {m.from_user.first_name}!")
+    await bot.send_chat_action(message.chat.id, "typing")
     await asyncio.sleep(3)
-    await m.answer("Выбери блок:", reply_markup=menu)
 
+    await message.answer(f"Приветствую тебя, {message.from_user.first_name}!")
+    await message.answer("Выбери блок:", reply_markup=menu_kb)
 
-# -------------------- START COURSE --------------------
+# ------------------ MODULE START ------------------
 
-async def start_course(m: Message, cid: str):
-    state[str(m.from_user.id)] = {"c": cid, "i": 0}
-    save_all()
-    await send_video(m, m.from_user.id)
+async def send_video(message: Message, module: str, index: int):
+    video = MODULES[module]["videos"][index]
+    title, file_id = video
 
+    total = len(MODULES[module]["videos"])
 
-@dp.message(F.text == "1️⃣Разогрев")
-async def c1(m): await start_course(m, "1")
-
-@dp.message(F.text == "2️⃣Рабочие звуки/звонкие качества")
-async def c2(m): await start_course(m, "2")
-
-@dp.message(F.text == "3️⃣Народный/Бэлтинг")
-async def c3(m): await start_course(m, "3")
-
-@dp.message(F.text == "4️⃣Вокальные упражнения")
-async def c4(m): await start_course(m, "4")
-
-
-# -------------------- VIDEO FLOW --------------------
-
-async def send_video(m: Message, uid: int):
-    uid = str(uid)
-
-    if uid not in state:
-        return
-
-    s = state[uid]
-    course = get_course(s["c"])
-    i = s["i"]
-
-    if i >= len(course):
-        await m.answer("Курс завершён")
-        return
-
-    item = course[i]
-
-    await m.answer_video(
-        item["file_id"],
-        caption=f"<b>{item['name']}</b>\n\n{bar(i, len(course))}",
-        parse_mode="HTML",
-        reply_markup=kb(i == len(course) - 1)
+    text = (
+        f"<b>{title}</b>\n\n"
+        f"{progress_bar(index + 1, total)}"
     )
 
+    await message.answer_video(
+        video=file_id,
+        caption=text,
+        reply_markup=inline_kb(module, index)
+    )
 
-@dp.callback_query(F.data == "next")
-async def nxt(c: CallbackQuery):
-    uid = str(c.from_user.id)
+# ------------------ MENU ------------------
 
-    if uid not in state:
-        return
+@router.message(F.text.in_(["1️⃣ Разогрев"]))
+async def warmup(m: Message):
+    await send_video(m, "warmup", 0)
 
-    s = state[uid]
-    course = get_course(s["c"])
+@router.message(F.text.in_(["2️⃣ Рабочие звуки/звонкие качества"]))
+async def sounds(m: Message):
+    await send_video(m, "sounds", 0)
 
-    s["i"] += 1
-    save_all()
+@router.message(F.text.in_(["3️⃣ Народный/Бэлтинг"]))
+async def belting(m: Message):
+    await send_video(m, "belting", 0)
 
-    if s["i"] >= len(course):
-        await c.message.answer("Курс завершён", reply_markup=menu)
-        return
+@router.message(F.text.in_(["4️⃣ Вокальные упражнения"]))
+async def exercises(m: Message):
+    await send_video(m, "exercises", 0)
 
-    await send_video(c.message, int(uid))
+# ------------------ CALLBACK ------------------
 
+@router.callback_query(F.data.startswith("next"))
+async def next_video(call: CallbackQuery):
+    _, module, idx = call.data.split(":")
+    idx = int(idx)
+    await call.message.delete()
+    await send_video(call.message, module, idx)
+    await call.answer()
 
-# -------------------- ADMIN PANEL --------------------
+@router.callback_query(F.data.startswith("finish"))
+async def finish(call: CallbackQuery):
+    _, module = call.data.split(":")
+    name = call.from_user.first_name
 
-@dp.message(Command("admin"))
+    await call.message.delete()
+    await call.message.answer(MODULES[module]["finish_text"].format(name=name))
+
+    await call.answer()
+
+# ------------------ ADMIN ------------------
+
+@router.message(Command("admin"))
 async def admin(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
+    await m.answer("Админ режим активен.\n/users — список пользователей")
 
-    admin_state[m.from_user.id] = None
-    await m.answer("Админ-панель:", reply_markup=admin_kb)
+@router.message(Command("users"))
+async def users(m: Message):
+    if m.from_user.id != ADMIN_ID:
+        return
+    await m.answer("\n".join(map(str, data["users"])) or "Нет пользователей")
 
-
-# -------------------- USERS --------------------
-
-@dp.message(F.text == "➕ Добавить пользователя")
+@router.message(Command("add_user"))
 async def add_user(m: Message):
     if m.from_user.id != ADMIN_ID:
         return
-
-    admin_state[m.from_user.id] = "add_user"
-    await m.answer("Отправь ID пользователя")
-
-
-@dp.message(F.text == "➖ Удалить пользователя")
-async def remove_user(m: Message):
-    if m.from_user.id != ADMIN_ID:
-        return
-
-    admin_state[m.from_user.id] = "remove_user"
-    await m.answer("Отправь ID пользователя")
-
-
-@dp.message(F.text == "🔙 Выйти")
-async def exit_admin(m: Message):
-    if m.from_user.id != ADMIN_ID:
-        return
-
-    admin_state[m.from_user.id] = None
-    await m.answer("Выход", reply_markup=menu)
-
-
-# -------------------- ADD VIDEO FLOW --------------------
-
-@dp.message(F.text == "🎥 Добавить видео")
-async def add_video(m: Message):
-    if m.from_user.id != ADMIN_ID:
-        return
-
-    admin_state[m.from_user.id] = "choose_course"
-    await m.answer("Выбери курс (1–4)")
-
-
-@dp.message(F.text.in_(["1", "2", "3", "4"]))
-async def choose_course(m: Message):
-    if m.from_user.id != ADMIN_ID:
-        return
-
-    if admin_state.get(m.from_user.id) != "choose_course":
-        return
-
-    pending_video[m.from_user.id] = {"course": m.text}
-    admin_state[m.from_user.id] = "wait_video"
-
-    await m.answer("Отправь или перешли видео (forward тоже работает)")
-
-
-# -------------------- RECEIVE VIDEO --------------------
-
-@dp.message(F.video | F.document)
-async def receive_video(m: Message):
-    if m.from_user.id != ADMIN_ID:
-        return
-
-    if admin_state.get(m.from_user.id) != "wait_video":
-        return
-
-    file_id = None
-
-    if m.video:
-        file_id = m.video.file_id
-    elif m.document and m.document.mime_type.startswith("video"):
-        file_id = m.document.file_id
-
-    if not file_id:
-        return await m.answer("Нужно видео")
-
-    pending_video[m.from_user.id]["file_id"] = file_id
-    admin_state[m.from_user.id] = "wait_name"
-
-    await m.answer("Теперь отправь название")
-
-
-# -------------------- RECEIVE NAME --------------------
-
-@dp.message()
-async def receive_name(m: Message):
-    if m.from_user.id != ADMIN_ID:
-        return
-
-    if admin_state.get(m.from_user.id) != "wait_name":
-        return
-
-    name = m.text
-    pv = pending_video[m.from_user.id]
-
-    cid = pv["course"]
-
-    data["courses"][cid].append({
-        "name": name,
-        "file_id": pv["file_id"]
-    })
-
-    save_all()
-
-    admin_state[m.from_user.id] = None
-    pending_video[m.from_user.id] = {}
-
-    await m.answer("Видео добавлено ✅")
-
-
-# -------------------- USER ADMIN --------------------
-
-@dp.message()
-async def user_admin(m: Message):
-    if m.from_user.id != ADMIN_ID:
-        return
-
-    mode = admin_state.get(m.from_user.id)
-
-    if mode not in ["add_user", "remove_user"]:
-        return
-
     try:
-        uid = int(m.text)
+        user_id = int(m.text.split()[1])
+        if user_id not in data["users"]:
+            data["users"].append(user_id)
+            save_data(data)
+        await m.answer("Добавлен")
     except:
-        return await m.answer("Ошибка ID")
+        await m.answer("Формат: /add_user ID")
 
-    if mode == "add_user":
-        if uid not in data["users"]:
-            data["users"].append(uid)
+@router.message(Command("del_user"))
+async def del_user(m: Message):
+    if m.from_user.id != ADMIN_ID:
+        return
+    try:
+        user_id = int(m.text.split()[1])
+        if user_id in data["users"]:
+            data["users"].remove(user_id)
+            save_data(data)
+        await m.answer("Удалён")
+    except:
+        await m.answer("Формат: /del_user ID")
 
-    elif mode == "remove_user":
-        if uid in data["users"]:
-            data["users"].remove(uid)
-
-    save_all()
-    admin_state[m.from_user.id] = None
-
-    await m.answer("Готово")
-
-
-# -------------------- RUN --------------------
+# ------------------ RUN ------------------
 
 async def main():
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
