@@ -50,9 +50,9 @@ MAX_VIDEO_TITLE_LENGTH = 120
 MAX_BLOCK_TITLE_LENGTH = 80
 CALLBACK_COOLDOWN_SECONDS = 0.8
 
-FINAL_PRACTICE_DELAY_SECONDS = 3.0
-LOADING_STEP_SECONDS = 0.45
-LOADING_CYCLES = 2
+FINAL_PRACTICE_DELAY_SECONDS = 1.5
+LOADING_STEP_SECONDS = 0.225
+LOADING_CYCLES = 1
 MAX_SEARCH_RESULTS = 12
 
 
@@ -702,9 +702,9 @@ async def send_admin_video_preview(call: CallbackQuery, block: str, index: int) 
     index = max(0, min(index, len(items) - 1))
     item = items[index]
     caption = (
-        f"<b>{get_blocks().get(block, block)}</b>\n\n"
-        f"{item['title']}\n"
-        f"{progress_text(block, index)}"
+        f"Блок: {get_blocks().get(block, block)}\n\n"
+        f"<b>{item['title']}</b>\n"
+        f"<b>{progress_text(block, index)}</b>"
     )
 
     await call.message.answer_video(
@@ -738,9 +738,9 @@ async def send_video(message_or_call: Message | CallbackQuery, block: str, index
 
     item = items[index]
     caption = (
-        f"<b>{get_blocks().get(block, block)}</b>\n\n"
-        f"{item['title']}\n"
-        f"{progress_text(block, index)}"
+        f"Блок: {get_blocks().get(block, block)}\n\n"
+        f"<b>{item['title']}</b>\n"
+        f"<b>{progress_text(block, index)}</b>"
     )
 
     await bot.send_video(
