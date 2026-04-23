@@ -50,8 +50,10 @@ MAX_VIDEO_TITLE_LENGTH = 120
 MAX_BLOCK_TITLE_LENGTH = 80
 CALLBACK_COOLDOWN_SECONDS = 0.8
 
-START_DELAY_SECONDS = 1.8
-TRANSITION_DELAY_SECONDS = 1.6
+FINAL_PRACTICE_DELAY_SECONDS = 3.0
+LOADING_STEP_SECONDS = 0.45
+LOADING_CYCLES = 2
+MAX_SEARCH_RESULTS = 12
 
 
 class VideoItem(TypedDict):
@@ -90,7 +92,7 @@ DEFAULT_BLOCKS = {
 BLOCK_FINISH_MESSAGES = {
     "warmup": "{name}, переходи к следующему блоку 2️⃣",
     "voice": "{name}, двигайся к следующему блоку 3️⃣",
-    "belt": 'Пришло время реализовать полученные навыки на практике, переходи к блоку "Вокальные упражнения" 🎤',
+    "belt": 'Пришло время реализовать полученные навыки на практике, переходи к блоку <b>"Вокальные упражнения"</b> 🎤',
     "practice": (
         "{name}, поздравляю с завершением тренировки!\n"
         "Для закрепления стойкого результата делайте эти практики регулярно.\n\n"
@@ -591,6 +593,53 @@ def update_callback_ts(user_id: int) -> bool:
     return True
 
 
+def search_videos(query: str) -> List[Dict[str, Any]]:
+    q = query.strip().lower()
+    if not q:
+        return []
+
+    results: List[Dict[str, Any]] = []
+    for block, items in DATA["videos"].items():
+        block_title = get_blocks().get(block, block)
+        for index, item in enumerate(items):
+            title = str(item.get("title", ""))
+            haystack = f"{block_title} {title}".lower()
+            if q in haystack:
+                score = 0
+                if q == title.lower():
+                    score += 100
+                if title.lower().startswith(q):
+                    score += 50
+                if q in title.lower():
+                    score += 20
+                if q in block_title.lower():
+                    score += 10
+                score -= index
+                results.append({
+                    "score": score,
+                    "block": block,
+                    "block_title": block_title,
+                    "index": index,
+                    "title": title,
+                })
+
+    results.sort(key=lambda x: (-x["score"], x["block_title"], x["index"]))
+    return results[:MAX_SEARCH_RESULTS]
+
+
+def search_results_kb(results: List[Dict[str, Any]]) -> InlineKeyboardMarkup:
+    rows: List[List[InlineKeyboardButton]] = []
+    for item in results:
+        label = f"{item['block_title']} — {item['title']}"
+        rows.append([
+            InlineKeyboardButton(
+                text=label[:64],
+                callback_data=f"search:open:{item['block']}:{item['index']}"
+            )
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 async def safe_edit_or_send(call: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
     if not call.message:
         return
@@ -629,9 +678,14 @@ async def maybe_send_animation(chat_id: int, file_id: str, caption: str | None =
         return False
 
 
-async def send_transition_text(chat_id: int, text: str, delay: float = TRANSITION_DELAY_SECONDS) -> None:
-    msg = await bot.send_message(chat_id, text)
-    await asyncio.sleep(delay)
+async def send_loading_text(chat_id: int, base_text: str) -> None:
+    msg = await bot.send_message(chat_id, base_text)
+    frames = ["", ".", "..", "..."]
+    for _ in range(LOADING_CYCLES):
+        for frame in frames:
+            await asyncio.sleep(LOADING_STEP_SECONDS)
+            with contextlib.suppress(Exception):
+                await msg.edit_text(f"{base_text}{frame}")
     with contextlib.suppress(Exception):
         await msg.delete()
 
@@ -648,9 +702,9 @@ async def send_admin_video_preview(call: CallbackQuery, block: str, index: int) 
     index = max(0, min(index, len(items) - 1))
     item = items[index]
     caption = (
-        f"<b>{item['title']}</b>\n"
-        f"Блок: {get_blocks().get(block, block)}\n"
-        f"Позиция: {index + 1}/{len(items)}"
+        f"<b>{get_blocks().get(block, block)}</b>\n\n"
+        f"{item['title']}\n"
+        f"{progress_text(block, index)}"
     )
 
     await call.message.answer_video(
@@ -684,8 +738,8 @@ async def send_video(message_or_call: Message | CallbackQuery, block: str, index
 
     item = items[index]
     caption = (
-        f"<b>{item['title']}</b>\n"
-        f"Блок: {get_blocks().get(block, block)}\n\n"
+        f"<b>{get_blocks().get(block, block)}</b>\n\n"
+        f"{item['title']}\n"
         f"{progress_text(block, index)}"
     )
 
@@ -699,16 +753,17 @@ async def send_video(message_or_call: Message | CallbackQuery, block: str, index
 
 
 @dp.message(CommandStart())
-async def start_handler(message: Message) -> None:
+async def start_handler(message: Message, state: FSMContext) -> None:
     update_user_profile(message.from_user)
+    await state.clear()
 
     if not has_access(message.from_user.id):
         await message.answer("Доступ к боту ограничен. Обратитесь к администратору: @juliavoice_coach.")
         return
 
-    await message.answer(f"Приветствую, {message.from_user.first_name}! ✨")
-    await send_transition_text(message.from_user.id, "Подготавливаю тренировку…", delay=START_DELAY_SECONDS)
-    await maybe_send_animation(message.from_user.id, START_ANIMATION_FILE_ID, "Готово к тренировке 🎤")
+    await message.answer(f"Приветствую, {message.from_user.first_name}!")
+    await send_loading_text(message.from_user.id, "Подготавливаю тренировку")
+    await maybe_send_animation(message.from_user.id, START_ANIMATION_FILE_ID, "Готово к тренировке")
     await message.answer("Выбери блок:", reply_markup=main_kb())
 
 
@@ -743,6 +798,30 @@ async def admin_cancel(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await safe_edit_or_send(call, "Действие отменено.", admin_main_kb())
     await call.answer("Отменено")
+
+
+@dp.callback_query(F.data.startswith("search:open:"))
+async def user_search_open(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
+    if not has_access(call.from_user.id):
+        await call.answer("Нет доступа", show_alert=True)
+        return
+
+    parts = call.data.split(":")
+    if len(parts) != 4:
+        await call.answer("Ошибка поиска", show_alert=True)
+        return
+
+    _, _, block, idx_str = parts
+    if block not in get_blocks() or not idx_str.isdigit():
+        await call.answer("Ошибка поиска", show_alert=True)
+        return
+
+    idx = int(idx_str)
+    await send_loading_text(call.from_user.id, "Загружаю урок")
+    await send_video(call, block, idx)
+    await call.answer()
 
 
 @dp.callback_query(F.data == "admin:add_block")
@@ -1391,9 +1470,27 @@ async def text_router(message: Message, state: FSMContext) -> None:
             return
 
         await state.clear()
-        await send_transition_text(user_id, f"Открываю блок {text} ✨", delay=TRANSITION_DELAY_SECONDS)
+        await send_loading_text(user_id, "Загружаю урок")
         await send_video(message, aliases[text], 0)
         return
+
+    if not has_access(user_id):
+        return
+
+    results = search_videos(text)
+    if not results:
+        return
+
+    if len(results) == 1:
+        item = results[0]
+        await send_loading_text(user_id, "Загружаю урок")
+        await send_video(message, item["block"], item["index"])
+        return
+
+    lines = ["<b>Найдено несколько вариантов:</b>"]
+    for idx, item in enumerate(results, start=1):
+        lines.append(f"{idx}. {item['block_title']} — {item['title']}")
+    await message.answer("\n".join(lines), reply_markup=search_results_kb(results))
 
 
 @dp.callback_query(F.data.startswith("next:"))
@@ -1427,15 +1524,19 @@ async def next_step(call: CallbackQuery) -> None:
             await call.message.edit_reply_markup(reply_markup=None)
 
     if next_idx < len(items):
-        await send_transition_text(call.from_user.id, "Следующее упражнение…", delay=TRANSITION_DELAY_SECONDS)
+        await send_loading_text(call.from_user.id, "Загружаю урок")
         await send_video(call, block, next_idx)
     else:
-        await maybe_send_animation(call.from_user.id, BLOCK_TRANSITION_ANIMATION_FILE_ID, "Блок завершён ✨")
+        await maybe_send_animation(call.from_user.id, BLOCK_TRANSITION_ANIMATION_FILE_ID, "Блок завершён")
         finish_text = BLOCK_FINISH_MESSAGES.get(block, DEFAULT_FINISH_MESSAGE).format(name=user_name(call))
+
+        if block == "practice":
+            await asyncio.sleep(FINAL_PRACTICE_DELAY_SECONDS)
+
         await bot.send_message(call.from_user.id, finish_text)
 
         if block == "practice":
-            await maybe_send_animation(call.from_user.id, FINISH_ANIMATION_FILE_ID, "Тренировка завершена 🎉")
+            await maybe_send_animation(call.from_user.id, FINISH_ANIMATION_FILE_ID, "Тренировка завершена")
 
     await call.answer()
 
