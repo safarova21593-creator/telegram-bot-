@@ -82,6 +82,10 @@ class AdminBlockFSM(StatesGroup):
     wait_block_title = State()
 
 
+class AdminPromoteFSM(StatesGroup):
+    wait_user_id = State()
+
+
 DEFAULT_BLOCKS = {
     "warmup": "1️⃣ Разогрев",
     "voice": "2️⃣ Рабочие звуки/звонкие качества",
@@ -423,7 +427,9 @@ def admin_users_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="➕ Добавить пользователя", callback_data="admin:user_add")],
+            [InlineKeyboardButton(text="👑 Добавить админа", callback_data="admin:add_admin")],
             [InlineKeyboardButton(text="🗑 Удалить пользователя", callback_data="admin:user_remove_list")],
+            [InlineKeyboardButton(text="🗑 Удалить админа", callback_data="admin:admin_remove_list")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:back")],
         ]
     )
@@ -516,6 +522,23 @@ def admin_delete_video_list_kb(block: str, items: List[VideoItem]) -> InlineKeyb
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def admin_remove_admins_kb() -> InlineKeyboardMarkup:
+    rows: List[List[InlineKeyboardButton]] = []
+    admins = sorted(get_admins())
+    for uid in admins:
+        if uid == DEFAULT_ADMIN_ID:
+            continue
+        label = f"🗑 {uid}"
+        profile = DATA.get("profiles", {}).get(str(uid), {})
+        username = str(profile.get("username", "")).strip()
+        if username:
+            label = f"🗑 @{username}"
+        rows.append([InlineKeyboardButton(text=label[:64], callback_data=f"admin:remove_admin:{uid}")])
+
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:users")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def users_text() -> str:
     users = sorted(get_allowed_users())
     admins_count = len(get_admins())
@@ -535,6 +558,14 @@ def user_remove_list_text() -> str:
     users = sorted(get_allowed_users())
     lines = ["<b>🗑 Удаление пользователя</b>", ""]
     for uid in users:
+        lines.append(format_user_line(uid))
+    return "\n".join(lines)
+
+
+def admin_remove_list_text() -> str:
+    admins = sorted(get_admins())
+    lines = ["<b>🗑 Удаление админа</b>", ""]
+    for uid in admins:
         lines.append(format_user_line(uid))
     return "\n".join(lines)
 
@@ -1155,6 +1186,21 @@ async def admin_user_add(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
 
 
+@dp.callback_query(F.data == "admin:add_admin")
+async def admin_add_admin(call: CallbackQuery, state: FSMContext) -> None:
+    update_user_profile(call.from_user)
+
+    if not is_admin(call.from_user.id):
+        await call.answer("Нет доступа", show_alert=True)
+        return
+
+    await state.clear()
+    await state.set_state(AdminPromoteFSM.wait_user_id)
+    text = users_text() + "\n\nВведите Telegram ID пользователя, которого нужно сделать админом."
+    await safe_edit_or_send(call, text, cancel_kb())
+    await call.answer()
+
+
 @dp.callback_query(F.data == "admin:user_remove_list")
 async def admin_user_remove_list(call: CallbackQuery) -> None:
     update_user_profile(call.from_user)
@@ -1169,6 +1215,23 @@ async def admin_user_remove_list(call: CallbackQuery) -> None:
         text += "\n\nНет пользователей для удаления."
 
     await safe_edit_or_send(call, text, user_remove_list_kb())
+    await call.answer()
+
+
+@dp.callback_query(F.data == "admin:admin_remove_list")
+async def admin_admin_remove_list(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
+    if not is_admin(call.from_user.id):
+        await call.answer("Нет доступа", show_alert=True)
+        return
+
+    text = admin_remove_list_text()
+    removable_admins = [uid for uid in get_admins() if uid != DEFAULT_ADMIN_ID]
+    if not removable_admins:
+        text += "\n\nНет админов для удаления."
+
+    await safe_edit_or_send(call, text, admin_remove_admins_kb())
     await call.answer()
 
 
@@ -1187,7 +1250,7 @@ async def admin_remove_user(call: CallbackQuery) -> None:
 
     remove_id = int(user_id_str)
     if is_admin(remove_id):
-        await call.answer("Администратора удалять нельзя", show_alert=True)
+        await call.answer("Сначала снимите роль админа", show_alert=True)
         return
 
     if remove_id not in get_allowed_users():
@@ -1202,6 +1265,38 @@ async def admin_remove_user(call: CallbackQuery) -> None:
     text = f"✅ Пользователь <code>{remove_id}</code> удалён.\n\n" + user_remove_list_text()
     await safe_edit_or_send(call, text, user_remove_list_kb())
     await call.answer("Пользователь удалён")
+
+
+@dp.callback_query(F.data.startswith("admin:remove_admin:"))
+async def admin_remove_admin(call: CallbackQuery) -> None:
+    update_user_profile(call.from_user)
+
+    if not is_admin(call.from_user.id):
+        await call.answer("Нет доступа", show_alert=True)
+        return
+
+    user_id_str = call.data.split(":", 2)[2]
+    if not user_id_str.isdigit():
+        await call.answer("Некорректный ID", show_alert=True)
+        return
+
+    remove_id = int(user_id_str)
+    if remove_id == DEFAULT_ADMIN_ID:
+        await call.answer("Главного админа удалять нельзя", show_alert=True)
+        return
+
+    if remove_id not in get_admins():
+        await call.answer("Админ не найден", show_alert=True)
+        return
+
+    DATA["admins"] = [uid for uid in DATA["admins"] if int(uid) != remove_id]
+    save_data(DATA)
+
+    logger.info("Admin %s removed admin role from %s", call.from_user.id, remove_id)
+
+    text = f"✅ Роль админа снята с <code>{remove_id}</code>.\n\n" + admin_remove_list_text()
+    await safe_edit_or_send(call, text, admin_remove_admins_kb())
+    await call.answer("Роль админа снята")
 
 
 @dp.callback_query(F.data == "admin:list_blocks")
@@ -1447,8 +1542,56 @@ async def admin_receive_user_id(message: Message, state: FSMContext) -> None:
     )
 
 
+@dp.message(AdminPromoteFSM.wait_user_id, F.text)
+async def admin_receive_admin_id(message: Message, state: FSMContext) -> None:
+    update_user_profile(message.from_user)
+
+    if not is_admin(message.from_user.id):
+        return
+
+    text = (message.text or "").strip()
+    if not text.isdigit():
+        await message.answer("Нужно отправить только числовой Telegram ID.", reply_markup=cancel_kb())
+        return
+
+    new_admin_id = int(text)
+
+    if new_admin_id in get_admins():
+        await state.clear()
+        await message.answer(
+            "Этот пользователь уже является админом.\n\n" + users_text(),
+            reply_markup=admin_users_kb(),
+        )
+        return
+
+    if new_admin_id not in get_allowed_users():
+        DATA["allowed_users"].append(new_admin_id)
+
+    DATA["allowed_users"] = sorted(set(int(x) for x in DATA["allowed_users"]))
+    DATA["admins"].append(new_admin_id)
+    DATA["admins"] = sorted(set(int(x) for x in DATA["admins"]))
+    save_data(DATA)
+
+    logger.info("Admin %s promoted %s to admin", message.from_user.id, new_admin_id)
+
+    await state.clear()
+    await message.answer(
+        f"✅ Пользователь <code>{new_admin_id}</code> назначен админом.\n\n" + users_text(),
+        reply_markup=admin_users_kb(),
+    )
+
+
 @dp.message(AdminUserFSM.wait_user_id)
 async def admin_receive_user_id_invalid(message: Message) -> None:
+    update_user_profile(message.from_user)
+
+    if not is_admin(message.from_user.id):
+        return
+    await message.answer("Нужно отправить только числовой Telegram ID.", reply_markup=cancel_kb())
+
+
+@dp.message(AdminPromoteFSM.wait_user_id)
+async def admin_receive_admin_id_invalid(message: Message) -> None:
     update_user_profile(message.from_user)
 
     if not is_admin(message.from_user.id):
